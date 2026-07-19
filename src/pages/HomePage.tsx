@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom'
 import { GameCard } from '../components/GameCard'
 import { gameDefinitions } from '../utils/games'
 
@@ -14,15 +13,6 @@ export function HomePage() {
             secondary Game Faucet inside the Falcon Ledger portal — hit 100 in any
             game and claim when your wallet is connected.
           </p>
-
-          <div className="hero__actions">
-            <Link className="button-primary" to="/falcon-flight">
-              Play Falcon Flight
-            </Link>
-            <Link className="button-secondary" to="/epoch-rise">
-              Play Epoch Rise
-            </Link>
-          </div>
         </div>
 
         <div className="hero__stats">
