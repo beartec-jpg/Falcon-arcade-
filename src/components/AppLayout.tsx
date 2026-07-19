@@ -37,9 +37,6 @@ export function AppLayout() {
             <div className="brand">
               <span className="brand__eyebrow">Falcon Arcade</span>
               <h1 className="brand__title">Game Faucet</h1>
-              <span className="brand__subtitle">
-                Play · score · claim qXRP
-              </span>
             </div>
 
             <div className="app-header__actions">
