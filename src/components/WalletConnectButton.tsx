@@ -1,22 +1,31 @@
 import { useMockWallet } from '../hooks/useMockWallet'
 
+function shortAddress(address: string) {
+  if (address.length <= 12) return address
+  return `${address.slice(0, 6)}…${address.slice(-4)}`
+}
+
 export function WalletConnectButton() {
   const { address, isConnected, isEmbedded, toggleConnection } = useMockWallet()
+  const compact = shortAddress(address)
 
-  // Parent portal owns the wallet when the arcade is iframed.
   if (isEmbedded) {
     return (
       <button type="button" className="wallet-button" disabled>
-        <span>{isConnected ? 'Wallet Connected' : 'Portal wallet'}</span>
-        <span className="wallet-chip">{address}</span>
+        <span className="wallet-button__label">
+          {isConnected ? 'Connected' : 'Portal'}
+        </span>
+        <span className="wallet-chip">{compact}</span>
       </button>
     )
   }
 
   return (
     <button type="button" className="wallet-button" onClick={toggleConnection}>
-      <span>{isConnected ? 'Wallet Connected' : 'Connect Wallet'}</span>
-      <span className="wallet-chip">{address}</span>
+      <span className="wallet-button__label">
+        {isConnected ? 'Connected' : 'Connect'}
+      </span>
+      <span className="wallet-chip">{compact}</span>
     </button>
   )
 }

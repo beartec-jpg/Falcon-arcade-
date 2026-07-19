@@ -6,7 +6,7 @@ export type UsePhaserGameConfig = {
   width?: number
   height?: number
   backgroundColor?: string
-  /** Enable arcade physics (needed for Falcon Flight collisions). */
+  /** Enable arcade physics (needed for collision games). */
   arcadePhysics?: boolean
   /**
    * Seed the game registry once after construction.
@@ -36,15 +36,18 @@ export function usePhaserGame(
       arcadePhysics = false,
     } = configRef.current
 
+    const parent = containerRef.current
+
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       width,
       height,
-      parent: containerRef.current,
+      parent,
       backgroundColor,
       scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
+        expandParent: false,
       },
       physics: arcadePhysics
         ? {
@@ -61,7 +64,34 @@ export function usePhaserGame(
     gameRef.current = game
     configRef.current.onGameCreated?.(game)
 
+    // Keep the canvas fitted when the host size changes (mobile layout / play focus).
+    const refreshScale = () => {
+      if (!gameRef.current) return
+      try {
+        gameRef.current.scale.refresh()
+      } catch {
+        // Game may be mid-destroy
+      }
+    }
+
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            refreshScale()
+          })
+        : null
+    ro?.observe(parent)
+
+    window.addEventListener('resize', refreshScale)
+    window.addEventListener('orientationchange', refreshScale)
+
+    // Initial layout pass after mount (flex/grid may settle a frame later)
+    requestAnimationFrame(refreshScale)
+
     return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', refreshScale)
+      window.removeEventListener('orientationchange', refreshScale)
       game.destroy(true)
       gameRef.current = null
     }
