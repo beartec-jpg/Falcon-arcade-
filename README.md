@@ -2,7 +2,7 @@
 
 Falcon Arcade is a web-based mini-games platform built with **Vite**, **React 18**, **TypeScript**, **Phaser 3**, and **React Router**. It embeds into the **Falcon Ledger** portal (`Falcon-faucet-wallet`) as an iframe “Game Faucet” experience.
 
-**Falcon Flight is fully playable.** Ledger Runner and Epoch Rise remain placeholder routes. The shell includes portal-aligned dark UI, wallet state (mock or parent-driven), and **parent ↔ iframe `postMessage` communication**.
+**Falcon Flight** and **Ledger Runner** are fully playable. Epoch Rise remains a placeholder route. The shell includes portal-aligned dark UI, wallet state (mock or parent-driven), and **parent ↔ iframe `postMessage` communication**.
 
 ## Getting started
 
@@ -70,7 +70,7 @@ src/
 ## Games
 
 1. **Falcon Flight** ✅ (horizontal) — auto-forward flight; steer up/down through ledger gaps and quantum static. Distance + gap-pass scoring, progressive difficulty, claim unlock at **100** points.
-2. **Ledger Runner** (horizontal) — placeholder; auto-runner + jump planned next.
+2. **Ledger Runner** ✅ (horizontal) — auto-runner with jump, double-jump, and slide. Quantum spikes, bad-ledger barriers, floaters, combo clears. Claim unlock at **100** points.
 3. **Epoch Rise** (vertical) — placeholder; energy-bar vertical scroller planned later.
 
 ## Game → reward model (portal)

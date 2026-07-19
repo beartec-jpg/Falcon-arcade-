@@ -17,13 +17,13 @@ export const gameDefinitions: GameDefinition[] = [
     slug: 'ledger-runner',
     name: 'Ledger Runner',
     route: '/ledger-runner',
-    tagline: 'Coming soon',
+    tagline: 'Auto-runner',
     description:
-      'Auto-runner + jump scaffold. Leap quantum attacks and bad ledgers — full gameplay arrives next.',
+      'Jump quantum spikes, slide under bad ledgers, chain combos. Distance scoring with progressive speed — claim at 100 points.',
     longDescription:
-      'Ledger Runner will be a momentum runner with jump controls over quantum attacks and bad ledgers. This route currently boots a placeholder Phaser scene while Falcon Flight ships first.',
+      'Ledger Runner is a horizontal auto-runner. You sprint forward automatically and only jump (with a double-jump) or slide. Clear quantum spikes, duck bad-ledger barriers, and time floaters. Combos reward clean consecutive clears. Hit the reward threshold to claim once per epoch from the parent portal.',
     scoreLabel: 'Runner score',
-    rewardLabel: 'Placeholder',
+    rewardLabel: 'Claim at 100 pts',
   },
   {
     slug: 'epoch-rise',

@@ -5,8 +5,10 @@ type GameCardProps = {
   game: GameDefinition
 }
 
+const LIVE_SLUGS = new Set(['falcon-flight', 'ledger-runner'])
+
 export function GameCard({ game }: GameCardProps) {
-  const isLive = game.slug === 'falcon-flight'
+  const isLive = LIVE_SLUGS.has(game.slug)
 
   return (
     <article className={`game-card${isLive ? ' game-card--live' : ''}`}>

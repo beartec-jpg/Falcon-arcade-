@@ -10,17 +10,17 @@ export function HomePage() {
           <span className="section-label">Falcon Arcade · Game Faucet</span>
           <h2 className="hero__title">Play. Score. Claim free qXRP.</h2>
           <p className="hero__copy">
-            Three mini-games feed epoch leaderboards and a secondary Game Faucet
-            inside the Falcon Ledger portal. Falcon Flight is live — steer the
-            bronze falcon, clear ledger gaps, and unlock your claim at 100 points.
+            Mini-games feed epoch leaderboards and a secondary Game Faucet inside
+            the Falcon Ledger portal. Falcon Flight and Ledger Runner are live —
+            rack up points, hit 100, and claim when your wallet is connected.
           </p>
 
           <div className="hero__actions">
             <Link className="button-primary" to="/falcon-flight">
               Play Falcon Flight
             </Link>
-            <Link className="button-secondary" to="/leaderboard">
-              Epoch leaderboard
+            <Link className="button-secondary" to="/ledger-runner">
+              Play Ledger Runner
             </Link>
           </div>
         </div>
@@ -28,15 +28,15 @@ export function HomePage() {
         <div className="hero__stats">
           <div className="hero-stat">
             <span className="game-meta__label">Live now</span>
-            <strong>Falcon Flight</strong>
+            <strong>Flight · Runner</strong>
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Claim threshold</span>
-            <strong>100 flight pts</strong>
+            <strong>100 pts each</strong>
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Coming next</span>
-            <strong>Runner · Epoch Rise</strong>
+            <strong>Epoch Rise</strong>
           </div>
         </div>
       </section>
