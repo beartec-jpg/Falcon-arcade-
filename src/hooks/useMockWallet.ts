@@ -1,22 +1,26 @@
-import { useMemo, useState } from 'react'
+import { useParentCommunication } from './useParentCommunication'
 
-const connectedWalletAddress = '0xFALC0N...B3TA'
-
+/**
+ * Standalone-friendly wallet surface used by the scaffold UI.
+ *
+ * When embedded in the Falcon Ledger portal, address comes from the parent
+ * via `WALLET_CONNECTED`. When running locally outside an iframe, the mock
+ * connect toggle still works for development.
+ *
+ * Prefer `useParentCommunication` for score/claim messaging.
+ */
 export function useMockWallet() {
-  const [isConnected, setIsConnected] = useState(false)
-
-  const address = useMemo(
-    () => (isConnected ? connectedWalletAddress : 'Mock wallet'),
-    [isConnected],
-  )
-
-  const toggleConnection = () => {
-    setIsConnected((value) => !value)
-  }
-
-  return {
+  const {
     address,
     isConnected,
-    toggleConnection,
+    isEmbedded,
+    toggleMockWallet,
+  } = useParentCommunication()
+
+  return {
+    address: address ?? (isEmbedded ? 'Waiting for portal…' : 'Mock wallet'),
+    isConnected,
+    isEmbedded,
+    toggleConnection: toggleMockWallet,
   }
 }

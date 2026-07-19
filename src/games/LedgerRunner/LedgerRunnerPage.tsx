@@ -7,6 +7,7 @@ const ledgerRunner = getGameDefinition('ledger-runner')
 export function LedgerRunnerPage() {
   return (
     <GamePageShell
+      gameSlug={ledgerRunner.slug}
       title={ledgerRunner.name}
       tagline={ledgerRunner.tagline}
       description={ledgerRunner.longDescription}
