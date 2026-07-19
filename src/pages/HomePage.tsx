@@ -7,7 +7,7 @@ export function HomePage() {
       <section className="hero">
         <div>
           <span className="section-label">Falcon Arcade · Game Faucet</span>
-          <h2 className="hero__title">Play. Score. Claim free qXRP.</h2>
+          <h2 className="hero__title">Play. Score. Claim Falcon.</h2>
           <p className="hero__copy">
             All three mini-games are live. Scores feed epoch leaderboards and a
             secondary Game Faucet inside the Falcon Ledger portal — hit 100 in any
