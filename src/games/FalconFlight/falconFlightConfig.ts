@@ -28,14 +28,15 @@ export const FALCON_FLIGHT = {
   height: 540,
   /** Fixed horizontal position of the falcon (world does the scrolling). */
   playerX: 170,
-  playerRadius: 16,
+  /** Tight body hitbox (wings are visual-only). */
+  playerRadius: 11,
   verticalSpeed: 320,
   /** Base world scroll speed (px/s). */
   baseScrollSpeed: 190,
   maxScrollSpeed: 420,
   /** Gap height range between ledger blocks. */
-  gapMax: 210,
-  gapMin: 108,
+  gapMax: 220,
+  gapMin: 120,
   /** Time between obstacle spawns (ms). */
   spawnMaxMs: 2100,
   spawnMinMs: 1150,

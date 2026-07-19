@@ -76,7 +76,12 @@ export class FalconFlightScene extends Phaser.Scene {
       'falcon-hitbox',
     )
     this.falcon.setVisible(false)
+    // setCircle radius is in unscaled texture space (texture is 32×32).
     this.falcon.setCircle(FALCON_FLIGHT.playerRadius)
+    this.falcon.body?.setOffset(
+      16 - FALCON_FLIGHT.playerRadius,
+      16 - FALCON_FLIGHT.playerRadius,
+    )
     this.falcon.setCollideWorldBounds(true)
     this.falcon.setGravity(0, 0)
     this.falcon.setDepth(10)
@@ -680,17 +685,18 @@ export class FalconFlightScene extends Phaser.Scene {
   private spawnQuantumBarrier() {
     const { width, height } = this.scale
     const x = width + 40
-    const slotH = Phaser.Math.Linear(120, 70, this.difficulty)
-    const slotCenter = Phaser.Math.Between(80, height - 80)
+    // Keep slots fairly generous so “ghost” collisions don’t feel unfair
+    const slotH = Phaser.Math.Linear(140, 95, this.difficulty)
+    const slotCenter = Phaser.Math.Between(90, height - 90)
     const barW = 26
 
-    // Three segments with one open slot
-    const segments: { y: number; h: number }[] = []
     const topH = Math.max(20, slotCenter - slotH / 2)
     const botY = slotCenter + slotH / 2
     const botH = Math.max(20, height - botY)
-    segments.push({ y: topH / 2, h: topH })
-    segments.push({ y: botY + botH / 2, h: botH })
+    const segments: { y: number; h: number }[] = [
+      { y: topH / 2, h: topH },
+      { y: botY + botH / 2, h: botH },
+    ]
 
     const meta: ObstacleMeta = {
       kind: 'quantum',
@@ -701,9 +707,7 @@ export class FalconFlightScene extends Phaser.Scene {
 
     for (const seg of segments) {
       const bar = this.obstacles.create(x, seg.y, 'quantum-bar') as Phaser.Physics.Arcade.Image
-      bar.setDisplaySize(barW, seg.h)
-      bar.refreshBody()
-      ;(bar.body as Phaser.Physics.Arcade.Body).setSize(barW * 0.85, seg.h * 0.95)
+      this.fitObstacleBody(bar, barW, seg.h, 0.78, 0.9)
       bar.setData('meta', meta)
       bar.setDepth(5)
       bar.setImmovable(true)
@@ -719,13 +723,37 @@ export class FalconFlightScene extends Phaser.Scene {
   ) {
     const key = kind === 'ledger' ? 'ledger-block' : 'quantum-bar'
     const block = this.obstacles.create(x, y, key) as Phaser.Physics.Arcade.Image
-    block.setDisplaySize(w, h)
-    block.refreshBody()
-    const body = block.body as Phaser.Physics.Arcade.Body
-    body.setSize(w * 0.9, h * 0.96)
+    // Hitbox slightly tighter than the art so gaps feel honest
+    this.fitObstacleBody(block, w, h, 0.78, 0.9)
     block.setImmovable(true)
     block.setDepth(5)
     return block
+  }
+
+  /**
+   * Phaser Arcade `body.setSize` is in *unscaled texture* units, then multiplied
+   * by the sprite’s scale. Passing display-pixel sizes made hitboxes huge
+   * (ghost collisions past the visible ledge/barrier).
+   */
+  private fitObstacleBody(
+    obj: Phaser.Physics.Arcade.Image,
+    displayW: number,
+    displayH: number,
+    hitScaleX = 0.8,
+    hitScaleY = 0.9,
+  ) {
+    obj.setDisplaySize(displayW, displayH)
+
+    const body = obj.body as Phaser.Physics.Arcade.Body
+    const frameW = obj.frame.width
+    const frameH = obj.frame.height
+
+    // World hitbox ≈ display * hitScale; convert to pre-scale source size.
+    const sourceW = frameW * hitScaleX
+    const sourceH = frameH * hitScaleY
+    body.setSize(sourceW, sourceH)
+    body.setOffset((frameW - sourceW) / 2, (frameH - sourceH) / 2)
+    body.updateFromGameObject()
   }
 
   private updateObstacles(delta: number) {
@@ -733,10 +761,12 @@ export class FalconFlightScene extends Phaser.Scene {
     const children = this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]
 
     for (const obs of children) {
+      // Keep body centered with the sprite while scrolling
       obs.x -= dx
       const body = obs.body as Phaser.Physics.Arcade.Body | null
       if (body) {
-        body.updateFromGameObject()
+        body.x = obs.x - body.halfWidth
+        body.y = obs.y - body.halfHeight
       }
 
       const meta = obs.getData('meta') as ObstacleMeta | undefined
