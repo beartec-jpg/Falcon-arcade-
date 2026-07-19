@@ -5,37 +5,37 @@ export const gameDefinitions: GameDefinition[] = [
     slug: 'falcon-flight',
     name: 'Falcon Flight',
     route: '/falcon-flight',
-    tagline: 'Arcade action',
+    tagline: 'Horizontal flight',
     description:
-      'A high-speed sky run scaffold with a Phaser scene mount and future reward hooks.',
+      'Auto-scroll dodge game. Steer up and down through ledger gaps, rack up distance, and unlock the Game Faucet at 100 points.',
     longDescription:
-      'Falcon Flight will become a reflex-driven flight challenge with collectible boosts, evasive movement, and tokenized progression hooks.',
+      'Falcon Flight is a horizontal auto-scroller. Your falcon flies forward at a constant pace — you only steer vertically to slip through ledger-block gaps and dodge quantum static. Score rises with distance and clean gap passes. Hit the reward threshold to claim once per epoch from the parent portal.',
     scoreLabel: 'Flight score',
-    rewardLabel: 'Reward claims disabled',
+    rewardLabel: 'Claim at 100 pts',
   },
   {
     slug: 'ledger-runner',
     name: 'Ledger Runner',
     route: '/ledger-runner',
-    tagline: 'On-chain runner',
+    tagline: 'Coming soon',
     description:
-      'A sprint-style platform scaffold for obstacle courses, streak scoring, and wallet-aware rewards.',
+      'Auto-runner + jump scaffold. Leap quantum attacks and bad ledgers — full gameplay arrives next.',
     longDescription:
-      'Ledger Runner is positioned for endless-run pacing, milestone streaks, and portal-based reward redemption once persistence is connected.',
+      'Ledger Runner will be a momentum runner with jump controls over quantum attacks and bad ledgers. This route currently boots a placeholder Phaser scene while Falcon Flight ships first.',
     scoreLabel: 'Runner score',
-    rewardLabel: 'Wallet rewards pending',
+    rewardLabel: 'Placeholder',
   },
   {
     slug: 'epoch-rise',
     name: 'Epoch Rise',
     route: '/epoch-rise',
-    tagline: 'Strategy arena',
+    tagline: 'Coming soon',
     description:
-      'A tactical arena scaffold prepared for future time-loop mechanics and cross-session progression.',
+      'Vertical scroller with an energy bar. Collect quantum orbs, avoid bad ledgers — deeper run systems planned.',
     longDescription:
-      'Epoch Rise will layer strategy combat, timing windows, and progression systems onto this prepared Phaser and React route shell.',
+      'Epoch Rise will be a vertical energy-management scroller: bad ledgers drain energy, quantum orbs restore it and score points. Placeholder scene only for now.',
     scoreLabel: 'Arena score',
-    rewardLabel: 'Portal sync pending',
+    rewardLabel: 'Placeholder',
   },
 ]
 

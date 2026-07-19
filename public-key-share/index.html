@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GitHub SSH Key</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#111;color:#f5f5f5;padding:24px;line-height:1.5}
+.box{background:#1e1e1e;border:2px solid #f59e0b;border-radius:12px;padding:16px;word-break:break-all;font-size:14px}
+button{margin-top:16px;width:100%;padding:16px;font-size:18px;border:0;border-radius:10px;background:#f59e0b;color:#111;font-weight:700}
+.ok{color:#4ade80;margin-top:12px;display:none}
+</style></head><body>
+<h1>GitHub SSH public key</h1>
+<p>Long-press the box below to copy, or tap the button.</p>
+<div class="box" id="key">ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGHQrQhrXqWnBOZo0ePqEM1681qYIkHnCEnI+VIWWoab droid@grok-fleet</div>
+<button type="button" id="btn">Copy key</button>
+<p class="ok" id="ok">Copied — now paste into GitHub SSH keys.</p>
+<script>
+const key = document.getElementById('key').textContent.trim();
+document.getElementById('btn').onclick = async () => {
+  try { await navigator.clipboard.writeText(key); document.getElementById('ok').style.display='block'; }
+  catch { prompt('Copy this key:', key); }
+};
+</script>
+</body></html>

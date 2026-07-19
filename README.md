@@ -1,8 +1,8 @@
 # Falcon Games (Falcon Arcade)
 
-Falcon Arcade is a web-based mini-games platform scaffold built with **Vite**, **React 18**, **TypeScript**, **Phaser 3**, and **React Router**. It is designed to embed into the **Falcon Ledger** portal (`Falcon-faucet-wallet`) as an iframe “Game Faucet” experience.
+Falcon Arcade is a web-based mini-games platform built with **Vite**, **React 18**, **TypeScript**, **Phaser 3**, and **React Router**. It embeds into the **Falcon Ledger** portal (`Falcon-faucet-wallet`) as an iframe “Game Faucet” experience.
 
-This repository currently focuses on the shell: navigation, dark-themed UI, wallet state (mock or portal-driven), Phaser placeholders, and **parent ↔ iframe `postMessage` communication**.
+**Falcon Flight is fully playable.** Ledger Runner and Epoch Rise remain placeholder routes. The shell includes portal-aligned dark UI, wallet state (mock or parent-driven), and **parent ↔ iframe `postMessage` communication**.
 
 ## Getting started
 

@@ -6,17 +6,19 @@ type GameCardProps = {
 }
 
 export function GameCard({ game }: GameCardProps) {
+  const isLive = game.slug === 'falcon-flight'
+
   return (
-    <article className="game-card">
+    <article className={`game-card${isLive ? ' game-card--live' : ''}`}>
       <span className="game-card__tag section-label">{game.tagline}</span>
       <h2 className="game-card__title">{game.name}</h2>
       <p className="game-card__description">{game.description}</p>
       <span className="game-card__badge">{game.rewardLabel}</span>
 
       <div className="game-card__footer">
-        <span className="wallet-chip">{game.route}</span>
-        <Link className="button-secondary" to={game.route}>
-          Open scaffold
+        <span className="wallet-chip">{isLive ? 'Playable' : 'Scaffold'}</span>
+        <Link className={isLive ? 'button-primary' : 'button-secondary'} to={game.route}>
+          {isLive ? 'Play now' : 'Open scaffold'}
         </Link>
       </div>
     </article>

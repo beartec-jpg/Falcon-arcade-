@@ -4,25 +4,30 @@
     Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #f9f5e9;
+  color: #f1f5f9;
   background:
-    radial-gradient(circle at top, rgba(255, 153, 0, 0.16), transparent 28%),
-    linear-gradient(180deg, #0f1218 0%, #090b10 100%);
+    radial-gradient(circle at top, rgba(192, 120, 56, 0.14), transparent 30%),
+    linear-gradient(180deg, #020617 0%, #020617 100%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --bg: #090b10;
-  --bg-elevated: rgba(20, 24, 33, 0.88);
-  --bg-card: rgba(17, 21, 29, 0.92);
-  --border: rgba(255, 196, 99, 0.18);
-  --text: #f9f5e9;
-  --text-muted: #a4abb8;
-  --accent: #f4a62a;
-  --accent-soft: rgba(244, 166, 42, 0.14);
-  --accent-strong: #ffd36c;
-  --success: #79d99d;
-  --shadow: 0 22px 48px rgba(0, 0, 0, 0.32);
+
+  /* Portal-aligned design tokens */
+  --bg: #020617;
+  --bg-elevated: #0f172a;
+  --bg-card: #0f172a;
+  --border: #1e293b;
+  --border-accent: rgba(192, 120, 56, 0.35);
+  --text: #f1f5f9;
+  --text-muted: #94a3b8;
+  --accent: #c07838;
+  --accent-hover: #d4922a;
+  --accent-dark: #a06030;
+  --accent-soft: rgba(192, 120, 56, 0.14);
+  --accent-strong: #d4922a;
+  --success: #4ade80;
+  --shadow: 0 22px 48px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -70,8 +75,8 @@ button {
   top: 0;
   z-index: 10;
   backdrop-filter: blur(18px);
-  background: rgba(9, 11, 16, 0.82);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(2, 6, 23, 0.88);
+  border-bottom: 1px solid var(--border);
 }
 
 .app-header__inner,
@@ -145,19 +150,28 @@ button {
 .nav-link:hover,
 .nav-link--active {
   color: var(--text);
-  border-color: var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border-accent);
+  background: var(--accent-soft);
 }
 
 .wallet-button {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-accent);
   border-radius: 999px;
   padding: 0.9rem 1.1rem;
-  background: linear-gradient(135deg, rgba(244, 166, 42, 0.14), rgba(255, 211, 108, 0.03));
+  background: linear-gradient(
+    135deg,
+    rgba(192, 120, 56, 0.18),
+    rgba(160, 96, 48, 0.06)
+  );
   color: var(--text);
   display: inline-flex;
   align-items: center;
   gap: 0.65rem;
+}
+
+.wallet-button:disabled {
+  opacity: 0.85;
+  cursor: default;
 }
 
 .wallet-chip {
@@ -182,7 +196,7 @@ button {
 
 .hero,
 .page-panel {
-  background: linear-gradient(180deg, rgba(21, 24, 34, 0.95) 0%, rgba(11, 14, 20, 0.95) 100%);
+  background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
 }
 
 .hero {
@@ -218,19 +232,32 @@ button {
   padding: 0 1.15rem;
   border-radius: 14px;
   border: 1px solid transparent;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .button-primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #251300;
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #1c1006;
   font-weight: 700;
+}
+
+.button-primary:hover {
+  background: linear-gradient(135deg, var(--accent-hover), #e0a84a);
 }
 
 .button-secondary,
 .claim-button {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(15, 23, 42, 0.8);
   border-color: var(--border);
   color: var(--text);
+}
+
+.button-secondary:hover {
+  border-color: var(--border-accent);
+  background: var(--accent-soft);
 }
 
 .hero__stats,
@@ -243,7 +270,8 @@ button {
 .meta-card {
   border-radius: 20px;
   padding: 1.25rem;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--border);
 }
 
 .hero-stat strong,
@@ -252,6 +280,19 @@ button {
   margin-top: 0.45rem;
   font-size: 1.35rem;
   color: var(--text);
+}
+
+.status-pill {
+  display: inline-flex;
+  margin-top: 0.55rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
 .games-grid {
@@ -267,7 +308,14 @@ button {
   gap: 1rem;
   padding: 1.5rem;
   border-radius: 24px;
-  background: linear-gradient(180deg, rgba(17, 21, 29, 0.97), rgba(11, 14, 20, 0.97));
+  background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+}
+
+.game-card--live {
+  border-color: var(--border-accent);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px rgba(192, 120, 56, 0.12);
 }
 
 .game-card__title {
@@ -311,11 +359,28 @@ button {
 .phaser-shell {
   overflow: hidden;
   border-radius: 24px;
-  background: var(--bg-card);
+  background: #020617;
+  border-color: var(--border);
 }
 
 .phaser-shell__frame {
   min-height: 540px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #020617;
+}
+
+.phaser-game-host {
+  width: 100%;
+  min-height: 540px;
+  touch-action: none;
+  user-select: none;
+}
+
+.phaser-game-host canvas {
+  display: block;
+  margin: 0 auto;
 }
 
 .game-page__sidebar {
@@ -327,18 +392,67 @@ button {
 .score-display {
   padding: 1rem 1.1rem;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--border);
 }
 
 .score-display strong {
   display: block;
   margin-top: 0.55rem;
   font-size: 2.2rem;
+  color: var(--accent-strong);
+}
+
+.score-best {
+  margin-top: 0.35rem !important;
+}
+
+.threshold-meter {
+  margin-top: 0.85rem;
+}
+
+.threshold-meter__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.threshold-meter__track {
+  height: 8px;
+  border-radius: 999px;
+  background: #1e293b;
+  overflow: hidden;
+}
+
+.threshold-meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-dark), var(--accent-hover));
+  transition: width 0.15s ease;
 }
 
 .claim-button[disabled] {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.claim-button--ready:not([disabled]) {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: #1c1006;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.claim-button--ready:not([disabled]):hover {
+  transform: translateY(-1px);
+}
+
+.claim-hint {
+  margin: 0;
+  font-size: 0.88rem;
 }
 
 .leaderboard-list {
@@ -355,8 +469,8 @@ button {
   gap: 1rem;
   padding: 1rem 1.1rem;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid var(--border);
 }
 
 .footer-note {
@@ -397,7 +511,8 @@ button {
     font-size: 2rem;
   }
 
-  .phaser-shell__frame {
+  .phaser-shell__frame,
+  .phaser-game-host {
     min-height: 420px;
   }
 }

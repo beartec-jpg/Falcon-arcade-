@@ -15,10 +15,10 @@ export function AppLayout() {
       <header className="app-header">
         <div className="app-header__inner">
           <div className="brand">
-            <span className="brand__eyebrow">Falcon Games</span>
-            <h1 className="brand__title">Web3 arcade scaffold</h1>
+            <span className="brand__eyebrow">Falcon Arcade</span>
+            <h1 className="brand__title">Game Faucet</h1>
             <span className="brand__subtitle">
-              Vite + React 18 + TypeScript + Phaser 3
+              Play mini-games · earn qXRP · climb epoch boards
             </span>
           </div>
 
