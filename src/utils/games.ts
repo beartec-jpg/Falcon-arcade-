@@ -29,13 +29,13 @@ export const gameDefinitions: GameDefinition[] = [
     slug: 'epoch-rise',
     name: 'Epoch Rise',
     route: '/epoch-rise',
-    tagline: 'Coming soon',
+    tagline: 'Vertical energy run',
     description:
-      'Vertical scroller with an energy bar. Collect quantum orbs, avoid bad ledgers — deeper run systems planned.',
+      'Rise forever while managing energy. Collect quantum orbs, dodge bad ledgers, grab shields and boosts — claim at 100 points.',
     longDescription:
-      'Epoch Rise will be a vertical energy-management scroller: bad ledgers drain energy, quantum orbs restore it and score points. Placeholder scene only for now.',
-    scoreLabel: 'Arena score',
-    rewardLabel: 'Placeholder',
+      'Epoch Rise is a vertical energy scroller. Your falcon ascends continuously; steer left and right, dash through gaps, and keep the energy bar alive. Bad ledgers and quantum interference drain energy; orbs restore it and score. Riskier orb clusters, temporary shields, and boost zones reward bold play. Hit the threshold to claim once per epoch from the parent portal.',
+    scoreLabel: 'Rise score',
+    rewardLabel: 'Claim at 100 pts',
   },
 ]
 
