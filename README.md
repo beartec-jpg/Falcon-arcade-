@@ -67,11 +67,11 @@ src/
 - `/epoch-rise` — Epoch Rise page with an empty Phaser scene
 - `/leaderboard` — leaderboard stub page
 
-## Planned games
+## Games
 
-1. **Falcon Flight** (horizontal) — auto-forward flight; player moves up/down to avoid obstacles.
-2. **Ledger Runner** (horizontal) — auto-runner + jump over quantum attacks / bad ledgers.
-3. **Epoch Rise** (vertical) — vertical scroller with energy bar, drain/restore, deeper scoring.
+1. **Falcon Flight** ✅ (horizontal) — auto-forward flight; steer up/down through ledger gaps and quantum static. Distance + gap-pass scoring, progressive difficulty, claim unlock at **100** points.
+2. **Ledger Runner** (horizontal) — placeholder; auto-runner + jump planned next.
+3. **Epoch Rise** (vertical) — placeholder; energy-bar vertical scroller planned later.
 
 ## Game → reward model (portal)
 
