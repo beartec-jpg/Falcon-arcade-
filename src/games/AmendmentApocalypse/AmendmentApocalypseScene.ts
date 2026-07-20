@@ -48,6 +48,35 @@ type BugMeta = {
 
 type PickupKind = 'amendment' | 'hardfork'
 
+/** Premium quantum defender — evolves visibly with weapon tier. */
+type ShipVisual = {
+  root: Phaser.GameObjects.Container
+  tier: number
+  // Auras
+  glow: Phaser.GameObjects.Arc
+  ring: Phaser.GameObjects.Arc
+  shieldRing: Phaser.GameObjects.Arc
+  // Thruster (rear = local -X, ship faces +X)
+  thrusterHalo: Phaser.GameObjects.Arc
+  thrusterPlume: Phaser.GameObjects.Triangle
+  thrusterPlumeCore: Phaser.GameObjects.Triangle
+  thrusterHousing: Phaser.GameObjects.Rectangle
+  thrusterCore: Phaser.GameObjects.Rectangle
+  thrusterSideT?: Phaser.GameObjects.Triangle
+  thrusterSideB?: Phaser.GameObjects.Triangle
+  // Wings (flex on turn)
+  wingTGroup: Phaser.GameObjects.Container
+  wingBGroup: Phaser.GameObjects.Container
+  // Cockpit
+  cockpit: Phaser.GameObjects.Arc
+  cockpitGlow: Phaser.GameObjects.Arc
+  eyeGlint: Phaser.GameObjects.Arc
+  visor: Phaser.GameObjects.Rectangle
+  // Energy accents (pulse with tier)
+  energyLines: Phaser.GameObjects.Rectangle[]
+  energyNodes: Phaser.GameObjects.Arc[]
+}
+
 /**
  * Amendment Apocalypse — free-roam arena shooter.
  * Defend the ledger; collect Amendments to escalate firepower.
@@ -77,9 +106,9 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
 
   private ship!: Phaser.Physics.Arcade.Image
   private shipVisual!: Phaser.GameObjects.Container
-  private shipParts: Phaser.GameObjects.Shape[] = []
-  private shieldRing!: Phaser.GameObjects.Arc
-  private thrusterGlow!: Phaser.GameObjects.Arc
+  private shipEmblem!: ShipVisual
+  private shipAnimT = 0
+  private lastShipAngle = 0
 
   private bullets!: Phaser.Physics.Arcade.Group
   private bugs!: Phaser.Physics.Arcade.Group
@@ -139,9 +168,10 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.pickups = this.physics.add.group({ allowGravity: false })
 
     this.trail = createPlayerTrail(this, 8)
-    this.shipVisual = this.buildShipVisual(width / 2, height / 2)
+    this.shipEmblem = this.createShipVisual(width / 2, height / 2)
+    this.shipVisual = this.shipEmblem.root
     // Slightly smaller craft so the arena reads zoomed-out / roomier
-    this.shipVisual.setScale(0.88)
+    this.shipVisual.setScale(0.9)
     this.ship = this.physics.add.image(width / 2, height / 2, 'ship-hit')
     this.ship.setVisible(false)
     this.ship.setCircle(11)
@@ -246,7 +276,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     }
     if (this.paused) return
 
-    this.syncShipVisual()
+    this.syncShipVisual(delta)
 
     if (this.state === 'ready') {
       this.idleBob(delta)
@@ -486,77 +516,249 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     g.destroy()
   }
 
-  private buildShipVisual(x: number, y: number) {
-    const c = this.add.container(x, y).setDepth(11)
-    this.rebuildShipParts(c, 1)
-    this.shieldRing = this.add.circle(0, 0, 28, AA_COLORS.shield, 0.0)
-    this.shieldRing.setStrokeStyle(2, AA_COLORS.shield, 0)
-    c.add(this.shieldRing)
-    this.thrusterGlow = this.add.circle(-14, 0, 8, AA_COLORS.quantum, 0.35)
-    c.addAt(this.thrusterGlow, 0)
-    return c
+  /**
+   * Premium quantum defender. Faces +X locally; scene rotates the root
+   * toward travel. Rebuilds geometry when weapon tier changes.
+   */
+  private createShipVisual(x: number, y: number): ShipVisual {
+    const root = this.add.container(x, y).setDepth(11)
+    const emblem = {
+      root,
+      tier: 0,
+    } as ShipVisual
+    this.applyShipTier(emblem, 1)
+    return emblem
   }
 
-  private rebuildShipParts(c: Phaser.GameObjects.Container, tier: number) {
-    // Keep shield + thruster if present
-    const keep = new Set([this.shieldRing, this.thrusterGlow])
-    for (const child of [...c.list]) {
-      if (!keep.has(child as Phaser.GameObjects.Arc)) {
-        c.remove(child, true)
-      }
-    }
-    this.shipParts = []
+  /** Progressive visual evolution for tiers 1–6. */
+  private applyShipTier(e: ShipVisual, tier: number) {
+    const t = Phaser.Math.Clamp(Math.floor(tier), 1, AA.maxWeaponTier)
+    if (e.tier === t && e.root.list.length > 0) return
+    e.tier = t
+    e.root.removeAll(true)
+    e.energyLines = []
+    e.energyNodes = []
 
     const bronze = AA_COLORS.bronze
     const bright = AA_COLORS.bronzeBright
     const dark = AA_COLORS.bronzeDark
+    const quantum = AA_COLORS.quantum
+    const quantumHot = AA_COLORS.quantumHot
+    const hardFork = AA_COLORS.hardFork
+    const ink = 0x020617
 
-    // Core hull (always)
-    const hull = this.add.triangle(0, 0, 16, 0, -12, -10, -12, 10, bronze)
-    const core = this.add.triangle(2, 0, 10, 0, -6, -5, -6, 5, bright)
-    const nose = this.add.circle(12, 0, 3, bright)
-    this.shipParts.push(hull, core, nose)
-    c.add([hull, core, nose])
+    // ── Auras ────────────────────────────────────────────
+    const ringR = 26 + t * 2.2
+    const glowR = 20 + t * 1.6
+    e.ring = this.add.circle(0, 0, ringR, bright, 0.04 + t * 0.012)
+    e.ring.setStrokeStyle(1.2, hardFork, 0.15 + t * 0.04)
+    e.glow = this.add.circle(0, 0, glowR, bronze, 0.14 + t * 0.02)
 
-    if (tier >= 2) {
-      const finT = this.add.triangle(-4, -12, 6, 4, -6, 4, 0, -10, dark)
-      const finB = this.add.triangle(-4, 12, 6, -4, -6, -4, 0, 10, dark)
-      this.shipParts.push(finT, finB)
-      c.add([finT, finB])
-    }
-    if (tier >= 3) {
-      const wingT = this.add.triangle(-2, -8, 8, 2, -10, 4, -4, -16, bright)
-      const wingB = this.add.triangle(-2, 8, 8, -2, -10, -4, -4, 16, dark)
-      this.shipParts.push(wingT, wingB)
-      c.add([wingT, wingB])
-    }
-    if (tier >= 4) {
-      const plate = this.add.rectangle(0, 0, 8, 14, dark, 0.7)
-      const line = this.add.rectangle(4, 0, 12, 2, AA_COLORS.hardFork, 0.9)
-      this.shipParts.push(plate, line)
-      c.add([plate, line])
-    }
-    if (tier >= 5) {
-      const rearL = this.add.triangle(-14, -6, 0, -4, 0, 4, -10, 0, bright)
-      const rearR = this.add.triangle(-14, 6, 0, -4, 0, 4, -10, 0, dark)
-      const glow = this.add.circle(0, 0, 18, bright, 0.1)
-      this.shipParts.push(rearL, rearR, glow)
-      c.addAt(glow, 0)
-      c.add([rearL, rearR])
-    }
-    if (tier >= 6) {
-      const crown = this.add.triangle(6, 0, 8, 0, -2, -7, -2, 7, AA_COLORS.hardFork)
-      const halo = this.add.circle(0, 0, 22, AA_COLORS.quantum, 0.08)
-      halo.setStrokeStyle(1.5, AA_COLORS.quantum, 0.5)
-      const node = this.add.circle(8, 0, 2.5, AA_COLORS.quantumHot)
-      this.shipParts.push(crown, halo, node)
-      c.addAt(halo, 0)
-      c.add([crown, node])
+    // ── Thruster (rear / local −X) ────────────────────────
+    e.thrusterHalo = this.add.circle(-16, 0, 9 + t * 0.8, quantum, 0.18)
+    e.thrusterPlume = this.add.triangle(
+      -22,
+      0,
+      6,
+      -7 - t,
+      6,
+      7 + t,
+      -14 - t * 1.5,
+      0,
+      quantum,
+      0.5,
+    )
+    e.thrusterPlumeCore = this.add.triangle(
+      -20,
+      0,
+      4,
+      -3.5,
+      4,
+      3.5,
+      -11 - t,
+      0,
+      quantumHot,
+      0.85,
+    )
+    e.thrusterHousing = this.add.rectangle(-12, 0, 8, 11 + t, dark)
+    e.thrusterHousing.setStrokeStyle(1, bronze, 0.65)
+    e.thrusterCore = this.add.rectangle(-13, 0, 4, 6 + t * 0.4, quantumHot, 0.95)
+    const thrusterRim = this.add.rectangle(-9, 0, 2.5, 13 + t, bright, 0.9)
+
+    if (t >= 5) {
+      e.thrusterSideT = this.add.triangle(
+        -14,
+        -8,
+        3,
+        -3,
+        3,
+        3,
+        -9,
+        0,
+        quantum,
+        0.55,
+      )
+      e.thrusterSideB = this.add.triangle(
+        -14,
+        8,
+        3,
+        -3,
+        3,
+        3,
+        -9,
+        0,
+        quantum,
+        0.55,
+      )
     }
 
-    // Re-add thruster/shield on top layers
-    if (this.thrusterGlow) c.addAt(this.thrusterGlow, 0)
-    if (this.shieldRing) c.add(this.shieldRing)
+    // ── Wing groups (flex on turn) ───────────────────────
+    e.wingTGroup = this.add.container(-2, -4)
+    e.wingBGroup = this.add.container(-2, 4)
+
+    // Tier 1: stub fins only
+    if (t >= 1) {
+      const stubT = this.add.triangle(0, 0, -4, 2, 6, 1, -2, -6, dark, 0.9)
+      const stubB = this.add.triangle(0, 0, -4, -2, 6, -1, -2, 6, dark, 0.9)
+      e.wingTGroup.add(stubT)
+      e.wingBGroup.add(stubB)
+    }
+    // Tier 2: extended fins
+    if (t >= 2) {
+      const finT = this.add.triangle(-2, -2, 6, 3, -6, 3, 0, -11, dark)
+      const finB = this.add.triangle(-2, 2, 6, -3, -6, -3, 0, 11, dark)
+      const finEdgeT = this.add.triangle(-1, -4, 3, 1, -3, 1, 0, -8, hardFork, 0.45)
+      const finEdgeB = this.add.triangle(-1, 4, 3, -1, -3, -1, 0, 8, hardFork, 0.4)
+      e.wingTGroup.add([finT, finEdgeT])
+      e.wingBGroup.add([finB, finEdgeB])
+    }
+    // Tier 3: full wings
+    if (t >= 3) {
+      const wingT = this.add.triangle(0, -2, 10, 2, -8, 3, -2, -16, bright)
+      const wingB = this.add.triangle(0, 2, 10, -2, -8, -3, -2, 16, dark)
+      const featherT = this.add.triangle(-4, -8, 4, -2, 6, 1, -6, -18, bronze, 0.85)
+      const featherB = this.add.triangle(-4, 8, 4, 2, 6, -1, -6, 18, bronze, 0.85)
+      e.wingTGroup.add([wingT, featherT])
+      e.wingBGroup.add([wingB, featherB])
+    }
+    // Tier 5+: rear stabilizers on wings
+    if (t >= 5) {
+      const stabT = this.add.triangle(-10, -4, 2, -3, 2, 2, -12, 0, bright, 0.9)
+      const stabB = this.add.triangle(-10, 4, 2, 3, 2, -2, -12, 0, dark, 0.9)
+      e.wingTGroup.add(stabT)
+      e.wingBGroup.add(stabB)
+    }
+
+    // ── Hull stack ───────────────────────────────────────
+    const hullShadow = this.add.triangle(1, 1.5, 18, 1, -13, -11, -13, 12, 0x6b3f1a)
+    const hull = this.add.triangle(0, 0, 18, 0, -12, -10, -12, 10, bronze)
+    const hullHighlight = this.add.triangle(
+      2,
+      -2,
+      12,
+      -1,
+      -6,
+      -6,
+      4,
+      -3,
+      bright,
+      0.5,
+    )
+    const core = this.add.triangle(2, 0, 12, 0, -6, -5.5, -6, 5.5, bright)
+    const belly = this.add.triangle(0, 3, 8, 2, -8, 6, -4, 8, dark, 0.5)
+
+    // Tier 4+: armor plating
+    let plate: Phaser.GameObjects.Rectangle | undefined
+    if (t >= 4) {
+      plate = this.add.rectangle(0, 0, 10, 12, dark, 0.75)
+      plate.setStrokeStyle(1, hardFork, 0.55)
+      const plateEdge = this.add.rectangle(1, 0, 2, 14, hardFork, 0.35)
+      e.root.add(plateEdge)
+    }
+
+    // Energy / ledger lines (more with tier)
+    const lineCount = Math.min(4, 1 + Math.floor(t / 2))
+    for (let i = 0; i < lineCount; i++) {
+      const y = -3 + i * 2.5
+      const line = this.add.rectangle(3, y, 10 + t, 1.2, i % 2 === 0 ? hardFork : quantum, 0.55)
+      e.energyLines.push(line)
+    }
+    if (t >= 3) {
+      const spine = this.add.rectangle(2, 0, 14, 1.8, quantum, 0.7)
+      e.energyLines.push(spine)
+    }
+    if (t >= 4) {
+      const node = this.add.circle(10, 0, 2.2, quantumHot, 0.95)
+      node.setStrokeStyle(1, 0xffffff, 0.35)
+      e.energyNodes.push(node)
+    }
+    if (t >= 6) {
+      const nodeA = this.add.circle(4, -5, 1.8, quantumHot, 0.9)
+      const nodeB = this.add.circle(4, 5, 1.8, quantumHot, 0.9)
+      e.energyNodes.push(nodeA, nodeB)
+    }
+
+    // ── Cockpit / visor (eye glint) ───────────────────────
+    e.cockpitGlow = this.add.circle(10, -1, 5.5 + t * 0.2, quantum, 0.22)
+    e.cockpit = this.add.circle(10, -1, 4.2, bright, 0.95)
+    e.cockpit.setStrokeStyle(1.3, hardFork, 0.55)
+    const socket = this.add.circle(11, -1, 2.8, ink, 1)
+    const iris = this.add.circle(11.4, -1, 1.7, quantum, 1)
+    e.eyeGlint = this.add.circle(10.6, -1.8, 0.9, 0xffffff, 0.95)
+    e.visor = this.add.rectangle(11, -1, 6 + t * 0.3, 2.8, quantum, 0.35)
+
+    // Nose tip
+    const nose = this.add.triangle(16, 0, 0, -3, 0, 3, 8 + Math.min(4, t), 0, hardFork)
+    if (t >= 6) {
+      // Crown / hard-fork apex
+      const crown = this.add.triangle(8, 0, 6, 0, -2, -7, -2, 7, hardFork)
+      const crownCore = this.add.circle(6, 0, 2.2, quantumHot, 0.95)
+      e.root.add([crown, crownCore])
+    }
+
+    // ── Shield ring (outermost overlay) ──────────────────
+    e.shieldRing = this.add.circle(0, 0, 28 + t, AA_COLORS.shield, 0)
+    e.shieldRing.setStrokeStyle(2, AA_COLORS.shield, 0)
+
+    // ── Assemble (back → front) ──────────────────────────
+    const layer: Phaser.GameObjects.GameObject[] = [
+      e.ring,
+      e.glow,
+      e.thrusterHalo,
+      e.thrusterPlume,
+      e.thrusterPlumeCore,
+    ]
+    if (e.thrusterSideT) layer.push(e.thrusterSideT)
+    if (e.thrusterSideB) layer.push(e.thrusterSideB)
+    layer.push(
+      e.thrusterHousing,
+      e.thrusterCore,
+      thrusterRim,
+      e.wingBGroup,
+      e.wingTGroup,
+      hullShadow,
+      belly,
+      hull,
+      hullHighlight,
+      core,
+    )
+    if (plate) layer.push(plate)
+    layer.push(...e.energyLines, ...e.energyNodes)
+    layer.push(
+      e.cockpitGlow,
+      e.cockpit,
+      socket,
+      iris,
+      e.eyeGlint,
+      e.visor,
+      nose,
+      e.shieldRing,
+    )
+    e.root.add(layer)
+  }
+
+  private rebuildShipParts(_c: Phaser.GameObjects.Container, tier: number) {
+    if (this.shipEmblem) this.applyShipTier(this.shipEmblem, tier)
   }
 
   // ── input ──────────────────────────────────────────────
@@ -921,8 +1123,6 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       // Face travel direction
       const angle = Phaser.Math.RadToDeg(Math.atan2(dir.y, dir.x))
       this.shipVisual.setAngle(angle)
-      this.thrusterGlow.setAlpha(0.45 + Math.random() * 0.3)
-      this.thrusterGlow.setScale(0.9 + Math.random() * 0.4)
     } else {
       // Face velocity if moving
       const spd = body.velocity.length()
@@ -931,7 +1131,6 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
           Phaser.Math.RadToDeg(Math.atan2(body.velocity.y, body.velocity.x)),
         )
       }
-      this.thrusterGlow.setAlpha(0.15)
       // light drag
       body.velocity.scale(AA.drag)
     }
@@ -945,26 +1144,109 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     const t = this.time.now / 400
     this.ship.y = this.scale.height / 2 + Math.sin(t) * 8
     this.ship.x = this.scale.width / 2 + Math.cos(t * 0.7) * 6
-    this.syncShipVisual()
+    this.syncShipVisual(delta)
     this.shipVisual.angle = Math.sin(t) * 8
+  }
+
+  private syncShipVisual(delta = 16) {
+    if (!this.shipEmblem || !this.ship) return
+    this.shipVisual.x = this.ship.x
+    this.shipVisual.y = this.ship.y
+    this.animateShipVisual(delta)
+  }
+
+  /**
+   * Thruster heat, wing flex on turn rate, energy pulse by tier / fire boost.
+   */
+  private animateShipVisual(delta: number) {
+    const e = this.shipEmblem
+    if (!e?.thrusterPlume) return
+
+    this.shipAnimT += delta
+    const t = this.shipAnimT
+    const body = this.ship.body as Phaser.Physics.Arcade.Body | null
+    const spd = body?.velocity.length() ?? 0
+    const speedNorm = Phaser.Math.Clamp(spd / AA.maxSpeed, 0, 1)
+    const fireHot = this.time.now < this.fireBoostUntil ? 1 : 0
+    const tierHeat = (e.tier - 1) / Math.max(1, AA.maxWeaponTier - 1)
+
+    // Turn rate → wing flex
+    const ang = this.shipVisual.angle
+    let dAng = ang - this.lastShipAngle
+    if (dAng > 180) dAng -= 360
+    if (dAng < -180) dAng += 360
+    this.lastShipAngle = ang
+    const flex = Phaser.Math.Clamp(dAng * 1.8, -14, 14)
+
+    if (e.wingTGroup) {
+      e.wingTGroup.angle = Phaser.Math.Linear(e.wingTGroup.angle, -flex + 2, 0.22)
+    }
+    if (e.wingBGroup) {
+      e.wingBGroup.angle = Phaser.Math.Linear(e.wingBGroup.angle, flex - 2, 0.22)
+    }
+
+    // Thruster intensity from speed + fire rate + tier
+    const thrust =
+      0.45 +
+      speedNorm * 0.85 +
+      fireHot * 0.4 +
+      tierHeat * 0.25 +
+      (this.state === 'ready' ? 0.2 : 0)
+    const flicker = 0.88 + Math.sin(t / 40) * 0.08 + Math.random() * 0.06
+    e.thrusterPlume.setScale(thrust * flicker, 0.7 + thrust * 0.45)
+    e.thrusterPlume.setAlpha(0.25 + thrust * 0.4)
+    e.thrusterPlumeCore.setScale(thrust * flicker * 0.9, 0.65 + thrust * 0.4)
+    e.thrusterPlumeCore.setAlpha(0.5 + thrust * 0.4)
+    e.thrusterCore.setAlpha(0.55 + Math.sin(t / 45) * 0.35 * thrust)
+    e.thrusterHalo.setScale(0.75 + thrust * 0.45 + Math.sin(t / 70) * 0.06)
+    e.thrusterHalo.setAlpha(0.08 + thrust * 0.2)
+    if (e.thrusterSideT) {
+      e.thrusterSideT.setAlpha(0.25 + thrust * 0.35)
+      e.thrusterSideT.setScale(0.85 + thrust * 0.25, thrust * 0.9)
+    }
+    if (e.thrusterSideB) {
+      e.thrusterSideB.setAlpha(0.25 + thrust * 0.35)
+      e.thrusterSideB.setScale(0.85 + thrust * 0.25, thrust * 0.9)
+    }
+
+    // Cockpit eye
+    e.eyeGlint.setAlpha(0.5 + Math.sin(t / 90) * 0.45)
+    e.eyeGlint.x = 10.6 + Math.sin(t / 120) * 0.35
+    e.cockpitGlow.setAlpha(0.14 + tierHeat * 0.12 + Math.sin(t / 100) * 0.08)
+    e.visor.setAlpha(0.25 + Math.sin(t / 110) * 0.2 + tierHeat * 0.15)
+
+    // Energy lines pulse harder at high tier / fire boost
+    const pulse =
+      0.35 + tierHeat * 0.45 + Math.sin(t / 85) * 0.2 + fireHot * 0.25
+    for (let i = 0; i < e.energyLines.length; i++) {
+      e.energyLines[i].setAlpha(pulse * (0.7 + (i % 3) * 0.12))
+    }
+    for (const n of e.energyNodes) {
+      n.setScale(0.85 + Math.sin(t / 70 + tierHeat) * 0.2)
+      n.setAlpha(0.55 + Math.sin(t / 60) * 0.35)
+    }
+
+    e.glow.setScale(1 + Math.sin(t / 150) * 0.06 + tierHeat * 0.04)
+    e.ring.setAlpha(0.05 + tierHeat * 0.12 + fireHot * 0.08)
+    e.ring.setScale(1 + Math.sin(t / 180) * 0.04)
+
     void delta
   }
 
-  private syncShipVisual() {
-    this.shipVisual.x = this.ship.x
-    this.shipVisual.y = this.ship.y
-  }
-
   private updateShieldVisual() {
+    const e = this.shipEmblem
+    if (!e?.shieldRing) return
     const active = this.time.now < this.shieldUntil
-    this.shieldRing.setStrokeStyle(
+    e.shieldRing.setStrokeStyle(
       2.5,
       AA_COLORS.shield,
       active ? 0.85 : 0,
     )
-    this.shieldRing.setFillStyle(AA_COLORS.shield, active ? 0.12 : 0)
+    e.shieldRing.setFillStyle(AA_COLORS.shield, active ? 0.12 : 0)
     if (active) {
-      this.shieldRing.setScale(1 + Math.sin(this.time.now / 80) * 0.08)
+      e.shieldRing.setScale(1 + Math.sin(this.time.now / 80) * 0.08)
+    } else {
+      e.shieldRing.setScale(1)
     }
   }
 
