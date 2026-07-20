@@ -660,18 +660,25 @@ export class FalconFlightScene extends Phaser.Scene {
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
 
-    this.wingFlap += delta * (this.state === 'playing' ? 1 + this.difficulty : 0.7)
+    this.wingFlap += delta * (this.state === 'playing' ? 1.15 + this.difficulty * 0.4 : 0.7)
     const vy = this.falcon.body?.velocity.y ?? 0
     const pitch =
-      this.state === 'playing' ? Phaser.Math.Clamp(vy / 18, -22, 22) : 0
+      this.state === 'playing' ? Phaser.Math.Clamp(vy / 16, -24, 24) : 0
+    const speedFactor =
+      this.state === 'playing'
+        ? this.scrollSpeed / FALCON_FLIGHT.baseScrollSpeed
+        : 0.85
 
     let mood: CharacterMood = 'idle'
     if (this.state === 'gameover') mood = 'dead'
     else if (this.state === 'playing') {
-      mood = this.difficulty > 0.65 ? 'boost' : 'play'
+      mood = this.difficulty > 0.55 || speedFactor > 1.35 ? 'boost' : 'play'
     }
 
-    animateFlightEmblem(this.flightEmblem, delta, this.wingFlap, mood, pitch)
+    animateFlightEmblem(this.flightEmblem, delta, this.wingFlap, mood, pitch, {
+      vy,
+      speedFactor,
+    })
   }
 
   private advanceScore(delta: number) {
