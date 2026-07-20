@@ -108,6 +108,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
   private trail!: Phaser.GameObjects.Particles.ParticleEmitter
   private runBob = 0
+  /** Cancelled on restart so "Ledger Halted" cannot stick mid-run. */
+  private gameOverTimer?: Phaser.Time.TimerEvent
+  /** Brief spawn protection after launch / restart. */
+  private invulnUntil = 0
 
   constructor() {
     super('LedgerRunnerScene')
@@ -163,7 +167,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.player,
       this.hazards,
       () => this.handleCrash(),
-      undefined,
+      () => this.time.now >= this.invulnUntil,
       this,
     )
 
@@ -600,6 +604,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private showOverlay(mode: 'ready' | 'gameover') {
+    // Never show death chrome unless we are actually halted
+    if (mode === 'gameover' && this.state !== 'gameover') return
+
     this.createOverlay()
     const title = this.overlay.getData('title') as Phaser.GameObjects.Text
     const body = this.overlay.getData('body') as Phaser.GameObjects.Text
@@ -620,6 +627,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     }
 
     this.overlay.setVisible(true)
+    this.overlay.setActive(true)
     this.hudHint.setText(
       mode === 'ready'
         ? 'SPACE / TAP jump  ·  ↓ / bottom tap slide  ·  double-jump in air'
@@ -628,8 +636,16 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private hideOverlay() {
-    if (this.overlay) {
-      this.overlay.setVisible(false)
+    if (!this.overlay) return
+    this.overlay.setVisible(false)
+    this.overlay.setActive(false)
+    if (this.overlay.input) this.overlay.disableInteractive()
+  }
+
+  private clearGameOverTimer() {
+    if (this.gameOverTimer) {
+      this.gameOverTimer.remove(false)
+      this.gameOverTimer = undefined
     }
   }
 
@@ -663,6 +679,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   // ── run lifecycle ──────────────────────────────────────
 
   private resetRun() {
+    this.clearGameOverTimer()
     this.state = 'ready'
     this.paused = false
     this.physics.resume()
@@ -679,6 +696,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.isSliding = false
     this.slideUntil = 0
     this.zonesFaded = false
+    this.invulnUntil = 0
     this.touchUi?.setActive(true)
     stopTrail(this.trail)
 
@@ -689,20 +707,28 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.groundY - LEDGER_RUNNER.playerH / 2,
     )
     this.player.setVelocity(0, 0)
+    this.tweens.killTweensOf(this.playerVisual)
     this.playerVisual.setAlpha(1)
     this.playerVisual.setAngle(0)
+    this.playerVisual.y = this.player.y
     this.hudScore.setText('SCORE  0')
     this.hudScore.setColor('#f1f5f9')
     this.hudCombo.setText('')
+    this.hideOverlay()
     this.emitScore(0)
   }
 
   private beginRun() {
     if (this.waitingHowTo) return
+    this.clearGameOverTimer()
     this.state = 'playing'
     this.hideOverlay()
-    this.nextSpawnAt = this.time.now + 800
+    this.nextSpawnAt = this.time.now + 900
+    this.invulnUntil = this.time.now + 700
     this.jumpsRemaining = 2
+    this.tweens.killTweensOf(this.playerVisual)
+    this.playerVisual.setAlpha(1)
+    this.playerVisual.setAngle(0)
     this.hudHint.setText('Jump spikes · slide ledgers · chain combos · P pause')
     startTrail(this.trail, this.player)
     this.emitState('playing')
@@ -716,6 +742,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.combo = 0
     this.hudCombo.setText('')
     stopTrail(this.trail)
+    this.clearGameOverTimer()
 
     playDeathJuice(
       this,
@@ -725,6 +752,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.deathEmitter,
     )
 
+    this.tweens.killTweensOf(this.playerVisual)
     this.tweens.add({
       targets: this.playerVisual,
       alpha: 0.25,
@@ -734,7 +762,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
       ease: 'Quad.easeOut',
     })
 
-    this.time.delayedCall(340, () => {
+    this.gameOverTimer = this.time.delayedCall(340, () => {
+      this.gameOverTimer = undefined
+      if (this.state !== 'gameover') return
       this.showOverlay('gameover')
       this.emitState('gameover')
       this.emitScore(this.score)
