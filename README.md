@@ -107,7 +107,16 @@ The arcade can run:
 { type: "CLAIM_REQUEST", game: string, score: number }
 ```
 
-`game` values match route slugs: `falcon-flight`, `ledger-runner`, `epoch-rise`.
+`game` values match route slugs: `falcon-flight`, `ledger-runner`, `epoch-rise`, `amendment-apocalypse`.
+
+### Parent → arcade (optional)
+
+```ts
+{ type: "WALLET_DISCONNECTED" }
+{ type: "CLAIM_RESULT", game: string, ok: boolean, txHash?: string, amount?: number, error?: string }
+```
+
+Portal Game Faucet uses the **same faucet pool** as the main faucet, with **separate daily game claim limits**. Set `VITE_PARENT_ORIGINS` and `VITE_PORTAL_API_URL` for embed + leaderboards.
 
 ### Parent embed sketch
 

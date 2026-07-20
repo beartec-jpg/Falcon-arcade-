@@ -36,16 +36,38 @@ export function GamePageShell({
   gameStateLabel,
   compactActions = false,
 }: GamePageShellProps) {
-  const { isConnected, isEmbedded, sendClaimRequest } = useParentCommunication()
+  const {
+    isConnected,
+    isEmbedded,
+    sendClaimRequest,
+    lastClaimResult,
+    clearClaimResult,
+  } = useParentCommunication()
   const [playFocus, setPlayFocus] = useState(false)
   const [showNewBest, setShowNewBest] = useState(false)
+  const [claimPending, setClaimPending] = useState(false)
   const prevBest = useRef(0)
   const scoreForClaim = claimScore ?? score
 
   const handleClaim = useCallback(() => {
-    if (!claimEnabled || !isConnected) return
+    if (!claimEnabled || !isConnected || claimPending) return
+    setClaimPending(true)
+    clearClaimResult()
     sendClaimRequest(gameSlug, scoreForClaim)
-  }, [claimEnabled, gameSlug, isConnected, scoreForClaim, sendClaimRequest])
+  }, [
+    claimEnabled,
+    isConnected,
+    claimPending,
+    clearClaimResult,
+    gameSlug,
+    scoreForClaim,
+    sendClaimRequest,
+  ])
+
+  useEffect(() => {
+    if (!lastClaimResult || lastClaimResult.game !== gameSlug) return
+    setClaimPending(false)
+  }, [lastClaimResult, gameSlug])
 
   const canClaim = claimEnabled && isConnected
   const progressScore = Math.max(score, bestScore ?? 0, scoreForClaim)
@@ -171,10 +193,10 @@ export function GamePageShell({
             <button
               type="button"
               className={`${claimClass} play-chrome__claim`}
-              disabled={!canClaim}
+              disabled={!canClaim || claimPending}
               onClick={handleClaim}
             >
-              {canClaim ? 'Claim' : claimLabel}
+              {claimPending ? '…' : canClaim ? 'Claim' : claimLabel}
             </button>
           </div>
 
@@ -231,17 +253,30 @@ export function GamePageShell({
             <button
               type="button"
               className={claimClass}
-              disabled={!canClaim}
+              disabled={!canClaim || claimPending}
               onClick={handleClaim}
             >
-              {claimLabel}
+              {claimPending ? 'Claiming…' : claimLabel}
             </button>
+
+            {lastClaimResult && lastClaimResult.game === gameSlug ? (
+              <p
+                className="page-copy claim-hint"
+                style={{
+                  color: lastClaimResult.ok ? '#4ade80' : '#f87171',
+                }}
+              >
+                {lastClaimResult.ok
+                  ? `Claimed${lastClaimResult.amount != null ? ` ${lastClaimResult.amount} FALCON` : ''}${lastClaimResult.txHash ? ` · ${lastClaimResult.txHash.slice(0, 10)}…` : ''}`
+                  : lastClaimResult.error ?? 'Claim failed'}
+              </p>
+            ) : null}
 
             {!isConnected ? (
               <p className="page-copy claim-hint">
                 {isEmbedded
-                  ? 'Waiting for the parent portal to connect your wallet.'
-                  : 'Use Connect Wallet in the header (standalone mock) to enable claims.'}
+                  ? 'Open the Falcon Ledger Arcade page with your wallet so claims can pay from the faucet.'
+                  : 'Use Connect Wallet in the header (standalone mock) for local UI tests. Real claims need the portal.'}
               </p>
             ) : null}
           </aside>

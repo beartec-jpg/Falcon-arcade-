@@ -1,16 +1,20 @@
 /**
  * postMessage protocol between Falcon Arcade (iframe) and
  * Falcon Ledger / Falcon-faucet-wallet (parent portal).
- *
- * Keep this file the single source of truth for message shapes
- * so the parent portal can mirror the same contract.
  */
 
 /** Messages the parent portal may post into the arcade iframe. */
-export type ParentToArcadeMessage = {
-  type: 'WALLET_CONNECTED'
-  address: string
-}
+export type ParentToArcadeMessage =
+  | { type: 'WALLET_CONNECTED'; address: string }
+  | { type: 'WALLET_DISCONNECTED' }
+  | {
+      type: 'CLAIM_RESULT'
+      game: string
+      ok: boolean
+      txHash?: string
+      amount?: number
+      error?: string
+    }
 
 /** Messages the arcade posts to the parent portal. */
 export type ArcadeToParentMessage =
@@ -18,8 +22,10 @@ export type ArcadeToParentMessage =
   | { type: 'SCORE_UPDATE'; game: string; score: number }
   | { type: 'CLAIM_REQUEST'; game: string; score: number }
 
-export type ParentMessageType = ParentToArcadeMessage['type']
-export type ArcadeMessageType = ArcadeToParentMessage['type']
+export type ClaimResultPayload = Extract<
+  ParentToArcadeMessage,
+  { type: 'CLAIM_RESULT' }
+>
 
 export function isParentToArcadeMessage(
   data: unknown,
@@ -32,6 +38,18 @@ export function isParentToArcadeMessage(
 
   if (record.type === 'WALLET_CONNECTED') {
     return typeof record.address === 'string' && record.address.length > 0
+  }
+
+  if (record.type === 'WALLET_DISCONNECTED') {
+    return true
+  }
+
+  if (record.type === 'CLAIM_RESULT') {
+    return (
+      typeof record.game === 'string' &&
+      record.game.length > 0 &&
+      typeof record.ok === 'boolean'
+    )
   }
 
   return false

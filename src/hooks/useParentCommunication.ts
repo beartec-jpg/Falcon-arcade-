@@ -13,6 +13,7 @@ import {
   isArcadeToParentMessage,
   isParentToArcadeMessage,
   type ArcadeToParentMessage,
+  type ClaimResultPayload,
 } from '../types/parentMessages'
 import {
   getAllowedParentOrigins,
@@ -21,28 +22,19 @@ import {
   resolveOutboundTargetOrigin,
 } from '../utils/iframe'
 
-/** Placeholder address used only when running outside an iframe. */
-const MOCK_WALLET_ADDRESS = '0xFALC0N...B3TA'
+const MOCK_WALLET_ADDRESS = 'rMockFalconArcadeDev000000000000'
 
 export type ParentCommunicationValue = {
-  /** True when the arcade is embedded in a parent frame. */
   isEmbedded: boolean
-  /** Connected wallet address, or null when disconnected. */
   address: string | null
-  /** Convenience flag for UI. */
   isConnected: boolean
-  /**
-   * Standalone (non-iframe) mock connect/disconnect.
-   * No-ops when embedded — the parent portal owns wallet state.
-   */
+  lastClaimResult: ClaimResultPayload | null
+  clearClaimResult: () => void
   connectMockWallet: () => void
   disconnectMockWallet: () => void
   toggleMockWallet: () => void
-  /** Notify the parent that the arcade shell is ready to receive wallet context. */
   notifyGameReady: () => void
-  /** Push a live score for leaderboard / threshold tracking. */
   sendScoreUpdate: (game: string, score: number) => void
-  /** Request a Game Faucet claim for the given game + final score. */
   sendClaimRequest: (game: string, score: number) => void
 }
 
@@ -54,16 +46,13 @@ function postToParent(
   trustedParentOrigin: string | null,
   isEmbedded: boolean,
 ): void {
-  if (typeof window === 'undefined') {
-    return
-  }
+  if (typeof window === 'undefined') return
 
   if (!isArcadeToParentMessage(message)) {
     console.warn('[Falcon Arcade] Refusing to post invalid message', message)
     return
   }
 
-  // Standalone local dev: no parent to talk to.
   if (!isEmbedded) {
     if (import.meta.env.DEV) {
       console.debug('[Falcon Arcade] standalone postMessage (no-op)', message)
@@ -88,21 +77,17 @@ export function ParentCommunicationProvider({
   const isEmbedded = useMemo(() => isInIframe(), [])
 
   const [address, setAddress] = useState<string | null>(null)
+  const [lastClaimResult, setLastClaimResult] =
+    useState<ClaimResultPayload | null>(null)
   const [trustedParentOrigin, setTrustedParentOrigin] = useState<string | null>(
     null,
   )
 
-  // Keep a ref so the message handler always posts with the latest origin
-  // without re-binding listeners on every trusted-origin change.
   const trustedOriginRef = useRef<string | null>(null)
   trustedOriginRef.current = trustedParentOrigin
 
   const notifyGameReady = useCallback(() => {
-    postToParent(
-      { type: 'GAME_READY' },
-      trustedOriginRef.current,
-      isEmbedded,
-    )
+    postToParent({ type: 'GAME_READY' }, trustedOriginRef.current, isEmbedded)
   }, [isEmbedded])
 
   const sendScoreUpdate = useCallback(
@@ -118,6 +103,7 @@ export function ParentCommunicationProvider({
 
   const sendClaimRequest = useCallback(
     (game: string, score: number) => {
+      setLastClaimResult(null)
       postToParent(
         { type: 'CLAIM_REQUEST', game, score },
         trustedOriginRef.current,
@@ -127,67 +113,61 @@ export function ParentCommunicationProvider({
     [isEmbedded],
   )
 
+  const clearClaimResult = useCallback(() => {
+    setLastClaimResult(null)
+  }, [])
+
   const connectMockWallet = useCallback(() => {
-    if (isEmbedded) {
-      return
-    }
+    if (isEmbedded) return
     setAddress(MOCK_WALLET_ADDRESS)
   }, [isEmbedded])
 
   const disconnectMockWallet = useCallback(() => {
-    if (isEmbedded) {
-      return
-    }
+    if (isEmbedded) return
     setAddress(null)
   }, [isEmbedded])
 
   const toggleMockWallet = useCallback(() => {
-    if (isEmbedded) {
-      return
-    }
+    if (isEmbedded) return
     setAddress((current) =>
       current === null ? MOCK_WALLET_ADDRESS : null,
     )
   }, [isEmbedded])
 
-  // Inbound parent messages — always validate origin before trusting data.
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
+    if (typeof window === 'undefined') return
 
     const handleMessage = (event: MessageEvent) => {
-      // Only accept messages that look like our protocol.
-      if (!isParentToArcadeMessage(event.data)) {
-        return
-      }
+      if (!isParentToArcadeMessage(event.data)) return
 
       if (!isAllowedParentOrigin(event.origin)) {
         console.warn(
           '[Falcon Arcade] Ignored message from untrusted origin',
           event.origin,
-          {
-            allowed: getAllowedParentOrigins(),
-          },
+          { allowed: getAllowedParentOrigins() },
         )
         return
       }
 
-      // Remember a verified parent origin for future outbound posts.
       setTrustedParentOrigin(event.origin)
 
       if (event.data.type === 'WALLET_CONNECTED') {
         setAddress(event.data.address)
+        return
+      }
+      if (event.data.type === 'WALLET_DISCONNECTED') {
+        setAddress(null)
+        return
+      }
+      if (event.data.type === 'CLAIM_RESULT') {
+        setLastClaimResult(event.data)
       }
     }
 
     window.addEventListener('message', handleMessage)
-    return () => {
-      window.removeEventListener('message', handleMessage)
-    }
+    return () => window.removeEventListener('message', handleMessage)
   }, [])
 
-  // Announce readiness once the shell is mounted so the parent can push wallet state.
   useEffect(() => {
     notifyGameReady()
   }, [notifyGameReady])
@@ -197,6 +177,8 @@ export function ParentCommunicationProvider({
       isEmbedded,
       address,
       isConnected: address !== null,
+      lastClaimResult,
+      clearClaimResult,
       connectMockWallet,
       disconnectMockWallet,
       toggleMockWallet,
@@ -207,6 +189,8 @@ export function ParentCommunicationProvider({
     [
       isEmbedded,
       address,
+      lastClaimResult,
+      clearClaimResult,
       connectMockWallet,
       disconnectMockWallet,
       toggleMockWallet,
@@ -223,10 +207,6 @@ export function ParentCommunicationProvider({
   )
 }
 
-/**
- * Access iframe / parent portal communication and wallet context.
- * Must be used under `ParentCommunicationProvider`.
- */
 export function useParentCommunication(): ParentCommunicationValue {
   const context = useContext(ParentCommunicationContext)
 
