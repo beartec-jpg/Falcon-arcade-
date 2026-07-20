@@ -73,7 +73,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private playerVisual!: Phaser.GameObjects.Container
   private runnerEmblem!: RunnerEmblem
   private hazards!: Phaser.Physics.Arcade.Group
-  private groundY = LEDGER_RUNNER.groundY
+  private groundY: number = LEDGER_RUNNER.groundY
 
   private jumpsRemaining = 2
   private isSliding = false
