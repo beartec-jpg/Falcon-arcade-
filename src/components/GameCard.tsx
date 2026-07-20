@@ -5,7 +5,12 @@ type GameCardProps = {
   game: GameDefinition
 }
 
-const LIVE_SLUGS = new Set(['falcon-flight', 'ledger-runner', 'epoch-rise'])
+const LIVE_SLUGS = new Set([
+  'falcon-flight',
+  'ledger-runner',
+  'epoch-rise',
+  'amendment-apocalypse',
+])
 
 export function GameCard({ game }: GameCardProps) {
   const isLive = LIVE_SLUGS.has(game.slug)

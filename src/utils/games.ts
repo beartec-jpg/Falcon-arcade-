@@ -37,6 +37,18 @@ export const gameDefinitions: GameDefinition[] = [
     scoreLabel: 'Rise score',
     rewardLabel: 'Claim at 100 pts',
   },
+  {
+    slug: 'amendment-apocalypse',
+    name: 'Amendment Apocalypse',
+    route: '/amendment-apocalypse',
+    tagline: 'Ledger defense',
+    description:
+      'Free-roam arena shooter. Collect Amendments to escalate firepower, smash code bugs, and hold consensus — claim at 100 points.',
+    longDescription:
+      'Amendment Apocalypse is an Asteroids-style defense of the ledger. Your ship flies freely with momentum while weapons auto-fire through six Amendment tiers. Collect Amendments to upgrade and gain a Consensus Shield; take two hits without recovery and consensus breaks. Hunt Null, Race, Loop, and Corrupt bugs — rare Hard Forks clear the screen.',
+    scoreLabel: 'Defense score',
+    rewardLabel: 'Claim at 100 pts',
+  },
 ]
 
 export function getGameDefinition(slug: GameDefinition['slug']) {

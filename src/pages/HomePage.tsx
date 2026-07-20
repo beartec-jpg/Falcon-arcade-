@@ -9,7 +9,7 @@ export function HomePage() {
           <span className="section-label">Falcon Arcade · Game Faucet</span>
           <h2 className="hero__title">Play. Score. Claim Falcon.</h2>
           <p className="hero__copy">
-            All three mini-games are live. Scores feed epoch leaderboards and a
+            Four mini-games are live. Scores feed epoch leaderboards and a
             secondary Game Faucet inside the Falcon Ledger portal — hit 100 in any
             game and claim when your wallet is connected.
           </p>
@@ -18,7 +18,7 @@ export function HomePage() {
         <div className="hero__stats">
           <div className="hero-stat">
             <span className="game-meta__label">Live now</span>
-            <strong>All 3 games</strong>
+            <strong>All 4 games</strong>
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Claim threshold</span>
@@ -26,7 +26,7 @@ export function HomePage() {
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Modes</span>
-            <strong>Flight · Run · Rise</strong>
+            <strong>Flight · Run · Rise · Amend</strong>
           </div>
         </div>
       </section>

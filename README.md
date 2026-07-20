@@ -2,7 +2,7 @@
 
 Falcon Arcade is a web-based mini-games platform built with **Vite**, **React 18**, **TypeScript**, **Phaser 3**, and **React Router**. It embeds into the **Falcon Ledger** portal (`Falcon-faucet-wallet`) as an iframe “Game Faucet” experience.
 
-**All three games are fully playable** — Falcon Flight, Ledger Runner, and Epoch Rise. The shell includes portal-aligned dark UI, wallet state (mock or parent-driven), and **parent ↔ iframe `postMessage` communication**.
+**All four games are fully playable** — Falcon Flight, Ledger Runner, Epoch Rise, and Amendment Apocalypse. The shell includes portal-aligned dark UI, wallet state (mock or parent-driven), and **parent ↔ iframe `postMessage` communication**.
 
 ## Getting started
 
@@ -65,6 +65,7 @@ src/
 - `/falcon-flight` — Falcon Flight (playable)
 - `/ledger-runner` — Ledger Runner (playable)
 - `/epoch-rise` — Epoch Rise (playable)
+- `/amendment-apocalypse` — Amendment Apocalypse (playable)
 - `/leaderboard` — leaderboard stub page
 
 ## Games
@@ -72,6 +73,7 @@ src/
 1. **Falcon Flight** ✅ (horizontal) — auto-forward flight; steer up/down through ledger gaps and quantum static. Distance + gap-pass scoring, progressive difficulty, claim unlock at **100** points.
 2. **Ledger Runner** ✅ (horizontal) — auto-runner with jump, double-jump, and slide. Quantum spikes, bad-ledger barriers, floaters, combo clears. Claim unlock at **100** points.
 3. **Epoch Rise** ✅ (vertical) — energy-bar ascent; left/right + dash, orbs restore energy, ledgers/interference drain it, shields and boost zones. Claim unlock at **100** points.
+4. **Amendment Apocalypse** ✅ (arena) — free-roam shooter; six Amendment weapon tiers, Consensus Shield, Null/Race/Loop/Corrupt bugs, Hard Fork wipes. Claim unlock at **100** points.
 
 ## Game → reward model (portal)
 

@@ -8,6 +8,7 @@ const navigationItems = [
   { label: 'Flight', to: '/falcon-flight' },
   { label: 'Runner', to: '/ledger-runner' },
   { label: 'Rise', to: '/epoch-rise' },
+  { label: 'Amend', to: '/amendment-apocalypse' },
 ]
 
 export function AppLayout() {
