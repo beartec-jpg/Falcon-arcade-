@@ -664,7 +664,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 22,
-        'Shoot red bugs  ·  grab green+ scroll / gold ★  ·  WASD  ·  P pause'
+        'Shoot red bugs  ·  grab green+ scroll / gold ★  ·  WASD  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
