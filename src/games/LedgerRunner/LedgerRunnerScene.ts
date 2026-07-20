@@ -1,5 +1,11 @@
 import Phaser from 'phaser'
 import {
+  animateRunnerEmblem,
+  createRunnerEmblem,
+  type CharacterMood,
+  type RunnerEmblem,
+} from '../../utils/emblemCharacters'
+import {
   attachQuantumPulse,
   createDataStream,
   createDeathEmitter,
@@ -62,6 +68,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private player!: Phaser.Physics.Arcade.Image
   private playerVisual!: Phaser.GameObjects.Container
+  private runnerEmblem!: RunnerEmblem
   private hazards!: Phaser.Physics.Arcade.Group
   private groundY = LEDGER_RUNNER.groundY
 
@@ -122,7 +129,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
     })
 
     this.trail = createPlayerTrail(this, 9)
-    this.playerVisual = this.createRunnerVisual()
+    this.runnerEmblem = createRunnerEmblem(
+      this,
+      LEDGER_RUNNER.playerX,
+      this.groundY - LEDGER_RUNNER.playerH / 2,
+      11,
+    )
+    this.playerVisual = this.runnerEmblem.root
     this.player = this.physics.add.image(
       LEDGER_RUNNER.playerX,
       this.groundY - LEDGER_RUNNER.playerH / 2,
@@ -326,36 +339,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
       g.generateTexture('floater', s, s)
       g.destroy()
     }
-  }
-
-  private createRunnerVisual() {
-    const c = this.add.container(
-      LEDGER_RUNNER.playerX,
-      this.groundY - LEDGER_RUNNER.playerH / 2,
-    )
-    c.setDepth(11)
-
-    const glow = this.add.circle(0, 4, 22, RUNNER_COLORS.bronze, 0.12)
-    // Legs
-    const legL = this.add.rectangle(-6, 14, 7, 16, RUNNER_COLORS.bronzeDark)
-    const legR = this.add.rectangle(6, 14, 7, 16, RUNNER_COLORS.bronzeDark)
-    // Torso
-    const torso = this.add.rectangle(0, 0, 22, 24, RUNNER_COLORS.bronze)
-    // Cape / chevron shoulder
-    const cape = this.add.triangle(-14, 2, 0, -10, 0, 12, -14, 6, RUNNER_COLORS.bronzeDark)
-    // Head
-    const head = this.add.circle(0, -18, 9, RUNNER_COLORS.bronzeBright)
-    const visor = this.add.rectangle(3, -18, 10, 4, 0x020617)
-    // Arm
-    const arm = this.add.rectangle(12, 0, 6, 14, RUNNER_COLORS.bronzeBright)
-
-    c.add([glow, cape, legL, legR, torso, arm, head, visor])
-    c.setData('legL', legL)
-    c.setData('legR', legR)
-    c.setData('torso', torso)
-    c.setData('head', head)
-    c.setData('arm', arm)
-    return c
   }
 
   private createGround(width: number) {
@@ -854,46 +837,42 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private syncPlayerVisual(delta: number) {
-    if (!this.playerVisual || !this.player) return
+    if (!this.playerVisual || !this.player || !this.runnerEmblem) return
 
     this.playerVisual.x = this.player.x
-    this.playerVisual.y = this.player.y
+    this.playerVisual.y = this.isSliding
+      ? this.groundY - LEDGER_RUNNER.slideH / 2
+      : this.player.y
 
-    const legL = this.playerVisual.getData('legL') as Phaser.GameObjects.Rectangle
-    const legR = this.playerVisual.getData('legR') as Phaser.GameObjects.Rectangle
-    const torso = this.playerVisual.getData('torso') as Phaser.GameObjects.Rectangle
-    const head = this.playerVisual.getData('head') as Phaser.GameObjects.Ellipse
-    const arm = this.playerVisual.getData('arm') as Phaser.GameObjects.Rectangle
-
-    if (this.isSliding) {
-      this.playerVisual.setScale(1.15, 0.55)
-      this.playerVisual.y = this.groundY - LEDGER_RUNNER.slideH / 2
-      legL.y = 6
-      legR.y = 6
-      return
+    if (this.state === 'playing' && this.onGround && !this.isSliding) {
+      this.runBob += delta * (1 + this.difficulty * 0.8)
+    } else {
+      this.runBob += delta * 0.4
     }
 
-    this.playerVisual.setScale(1, 1)
+    let mood: CharacterMood = 'idle'
+    if (this.state === 'gameover') mood = 'dead'
+    else if (this.state === 'playing') {
+      if (this.isSliding) mood = 'boost'
+      else if (!this.onGround) mood = 'boost'
+      else mood = this.combo >= 4 ? 'boost' : 'play'
+    }
 
-    if (this.state === 'playing' && this.onGround) {
-      this.runBob += delta * (1 + this.difficulty * 0.8)
-      const swing = Math.sin(this.runBob / 70) * 6
-      legL.y = 14 + swing
-      legR.y = 14 - swing
-      arm.angle = swing * 1.2
-      torso.y = Math.abs(swing) * 0.15
-      head.y = -18 + Math.abs(swing) * 0.1
-    } else if (!this.onGround) {
-      legL.y = 10
-      legR.y = 16
+    if (!this.onGround && this.state === 'playing' && !this.isSliding) {
       this.playerVisual.angle = Phaser.Math.Clamp(
         (this.player.body?.velocity.y ?? 0) / 40,
         -18,
         22,
       )
-    } else {
+    } else if (!this.isSliding) {
       this.playerVisual.angle = Phaser.Math.Linear(this.playerVisual.angle, 0, 0.2)
     }
+
+    animateRunnerEmblem(this.runnerEmblem, delta, this.runBob, mood, {
+      onGround: this.onGround && this.state === 'playing',
+      sliding: this.isSliding,
+      runBob: this.runBob,
+    })
   }
 
   // ── scoring ────────────────────────────────────────────

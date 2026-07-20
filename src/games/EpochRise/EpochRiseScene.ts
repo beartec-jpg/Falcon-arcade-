@@ -1,5 +1,11 @@
 import Phaser from 'phaser'
 import {
+  animateRiseEmblem,
+  createRiseEmblem,
+  type CharacterMood,
+  type RiseEmblem,
+} from '../../utils/emblemCharacters'
+import {
   attachQuantumPulse,
   createDataStream,
   createDeathEmitter,
@@ -67,6 +73,7 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
+  private riseEmblem!: RiseEmblem
   private entities!: Phaser.Physics.Arcade.Group
 
   private shieldUntil = 0
@@ -131,7 +138,8 @@ export class EpochRiseScene extends Phaser.Scene {
     })
 
     this.trail = createPlayerTrail(this, 9)
-    this.falconVisual = this.createFalconVisual()
+    this.riseEmblem = createRiseEmblem(this, width / 2, EPOCH_RISE.playerY, 13)
+    this.falconVisual = this.riseEmblem.root
     this.falcon = this.physics.add.image(
       width / 2,
       EPOCH_RISE.playerY,
@@ -372,26 +380,6 @@ export class EpochRiseScene extends Phaser.Scene {
       g.generateTexture('mover', w, h)
       g.destroy()
     }
-  }
-
-  private createFalconVisual() {
-    const c = this.add.container(this.scale.width / 2, EPOCH_RISE.playerY)
-    c.setDepth(13)
-
-    const glow = this.add.circle(0, 0, 24, EPOCH_COLORS.bronze, 0.14)
-    // Pointing up for vertical rise
-    const body = this.add.triangle(0, 0, 0, -20, -12, 14, 12, 14, EPOCH_COLORS.bronze)
-    const wingL = this.add.triangle(-10, 2, 0, -6, -20, 8, 2, 6, EPOCH_COLORS.bronzeBright)
-    const wingR = this.add.triangle(10, 2, 0, -6, 20, 8, -2, 6, EPOCH_COLORS.bronzeDark)
-    const head = this.add.circle(0, -16, 5, EPOCH_COLORS.bronzeBright)
-    const engine = this.add.rectangle(0, 16, 8, 6, EPOCH_COLORS.quantum)
-
-    c.add([glow, wingL, wingR, body, head, engine])
-    c.setData('wingL', wingL)
-    c.setData('wingR', wingR)
-    c.setData('glow', glow)
-    c.setData('engine', engine)
-    return c
   }
 
   private drawLanes(delta: number) {
@@ -830,37 +818,29 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   private updateFalconVisual(delta: number) {
-    if (!this.falconVisual || !this.falcon) return
+    if (!this.falconVisual || !this.falcon || !this.riseEmblem) return
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
 
-    const wingL = this.falconVisual.getData('wingL') as Phaser.GameObjects.Triangle
-    const wingR = this.falconVisual.getData('wingR') as Phaser.GameObjects.Triangle
-    const glow = this.falconVisual.getData('glow') as Phaser.GameObjects.Arc
-    const engine = this.falconVisual.getData('engine') as Phaser.GameObjects.Rectangle
-
-    this.wingFlap += delta * (this.state === 'playing' ? 1.4 : 0.8)
-    const flap = Math.sin(this.wingFlap / 100) * 5
-    wingL.x = -10 - flap * 0.3
-    wingR.x = 10 + flap * 0.3
-
+    this.wingFlap += delta * (this.state === 'playing' ? 1.45 : 0.75)
     const vx = this.falcon.body?.velocity.x ?? 0
-    this.falconVisual.angle = Phaser.Math.Linear(
-      this.falconVisual.angle,
-      Phaser.Math.Clamp(vx / 20, -18, 18),
-      0.18,
-    )
+    const bank =
+      this.state === 'playing' ? Phaser.Math.Clamp(vx / 18, -20, 20) : 0
 
-    const shielded = this.time.now < this.shieldUntil
-    glow.setFillStyle(
-      shielded ? EPOCH_COLORS.shield : EPOCH_COLORS.bronze,
-      shielded ? 0.28 : 0.14,
-    )
-    engine.setFillStyle(
-      this.time.now < this.boostZoneUntil
-        ? EPOCH_COLORS.bronzeBright
-        : EPOCH_COLORS.quantum,
-    )
+    let mood: CharacterMood = 'idle'
+    if (this.state === 'gameover') mood = 'dead'
+    else if (this.state === 'playing') {
+      if (this.time.now < this.shieldUntil) mood = 'shield'
+      else if (
+        this.time.now < this.boostZoneUntil ||
+        this.time.now < this.dashUntil
+      ) {
+        mood = 'boost'
+      } else if (this.energy < EPOCH_RISE.maxEnergy * 0.28) mood = 'danger'
+      else mood = 'play'
+    }
+
+    animateRiseEmblem(this.riseEmblem, delta, this.wingFlap, mood, bank)
   }
 
   // ── energy & score ─────────────────────────────────────

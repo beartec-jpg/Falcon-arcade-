@@ -1,5 +1,11 @@
 import Phaser from 'phaser'
 import {
+  animateFlightEmblem,
+  createFlightEmblem,
+  type CharacterMood,
+  type FlightEmblem,
+} from '../../utils/emblemCharacters'
+import {
   attachQuantumPulse,
   createDataStream,
   createDeathEmitter,
@@ -59,6 +65,7 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
+  private flightEmblem!: FlightEmblem
   private obstacles!: Phaser.Physics.Arcade.Group
   private starLayers: StarLayer[] = []
   private dataStream!: Phaser.GameObjects.Graphics
@@ -108,7 +115,13 @@ export class FalconFlightScene extends Phaser.Scene {
     })
 
     this.trail = createPlayerTrail(this, 9)
-    this.falconVisual = this.createFalconVisual()
+    this.flightEmblem = createFlightEmblem(
+      this,
+      FALCON_FLIGHT.playerX,
+      height / 2,
+      11,
+    )
+    this.falconVisual = this.flightEmblem.root
     this.falcon = this.physics.add.image(
       FALCON_FLIGHT.playerX,
       height / 2,
@@ -269,47 +282,6 @@ export class FalconFlightScene extends Phaser.Scene {
       g.generateTexture('quantum-bar', w, h)
       g.destroy()
     }
-  }
-
-  private createFalconVisual() {
-    const c = this.add.container(FALCON_FLIGHT.playerX, this.scale.height / 2)
-    c.setDepth(11)
-
-    const glow = this.add.circle(0, 0, 26, FALCON_COLORS.bronze, 0.16)
-    const outerGlow = this.add.circle(2, 0, 34, FALCON_COLORS.bronzeBright, 0.06)
-    const tail = this.add.triangle(-20, 0, 0, -9, 0, 9, -18, 0, FALCON_COLORS.bronzeDark)
-    const tailInner = this.add.triangle(-14, 0, 0, -5, 0, 5, -10, 0, FALCON_COLORS.bronze)
-    const body = this.add.triangle(2, 0, -14, -13, -14, 13, 24, 0, FALCON_COLORS.bronze)
-    const bodyCore = this.add.triangle(0, 0, -8, -7, -8, 7, 14, 0, FALCON_COLORS.bronzeBright)
-    const wingTop = this.add.triangle(-2, -11, -12, 0, 10, -2, -6, -24, FALCON_COLORS.bronzeBright)
-    const wingBot = this.add.triangle(-2, 11, -12, 0, 10, 2, -6, 24, FALCON_COLORS.bronzeDark)
-    const wingTipT = this.add.triangle(-8, -20, 0, -4, 6, -6, -4, -28, FALCON_COLORS.bronze)
-    const wingTipB = this.add.triangle(-8, 20, 0, 4, 6, 6, -4, 28, FALCON_COLORS.bronze)
-    const head = this.add.circle(16, -2, 6, FALCON_COLORS.bronzeBright)
-    const beak = this.add.triangle(24, 0, 0, -3.5, 0, 3.5, 12, 0, FALCON_COLORS.bronzeBright)
-    const eye = this.add.circle(18, -3, 1.8, 0x020617)
-    const eyeGlint = this.add.circle(18.6, -3.5, 0.7, 0xf1f5f9)
-
-    c.add([
-      outerGlow,
-      glow,
-      wingTipB,
-      wingBot,
-      tail,
-      tailInner,
-      wingTipT,
-      wingTop,
-      body,
-      bodyCore,
-      head,
-      beak,
-      eye,
-      eyeGlint,
-    ])
-    c.setData('wingTop', wingTop)
-    c.setData('wingBot', wingBot)
-    c.setData('glow', glow)
-    return c
   }
 
   private setupInput() {
@@ -649,27 +621,22 @@ export class FalconFlightScene extends Phaser.Scene {
   }
 
   private updateFalconVisual(delta: number) {
-    if (!this.falconVisual || !this.falcon) return
+    if (!this.falconVisual || !this.falcon || !this.flightEmblem) return
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
 
-    if (this.state === 'playing') {
-      const vy = this.falcon.body?.velocity.y ?? 0
-      const targetAngle = Phaser.Math.Clamp(vy / 18, -22, 22)
-      this.falconVisual.angle = Phaser.Math.Linear(
-        this.falconVisual.angle,
-        targetAngle,
-        0.2,
-      )
-      this.wingFlap += delta * (1 + this.difficulty)
-      const flap = Math.sin(this.wingFlap / 90) * 5
-      const wingTop = this.falconVisual.getData('wingTop') as Phaser.GameObjects.Triangle
-      const wingBot = this.falconVisual.getData('wingBot') as Phaser.GameObjects.Triangle
-      const glow = this.falconVisual.getData('glow') as Phaser.GameObjects.Arc
-      wingTop.y = -11 - flap
-      wingBot.y = 11 + flap
-      glow.setScale(1 + Math.sin(this.wingFlap / 140) * 0.08)
+    this.wingFlap += delta * (this.state === 'playing' ? 1 + this.difficulty : 0.7)
+    const vy = this.falcon.body?.velocity.y ?? 0
+    const pitch =
+      this.state === 'playing' ? Phaser.Math.Clamp(vy / 18, -22, 22) : 0
+
+    let mood: CharacterMood = 'idle'
+    if (this.state === 'gameover') mood = 'dead'
+    else if (this.state === 'playing') {
+      mood = this.difficulty > 0.65 ? 'boost' : 'play'
     }
+
+    animateFlightEmblem(this.flightEmblem, delta, this.wingFlap, mood, pitch)
   }
 
   private advanceScore(delta: number) {
