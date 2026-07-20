@@ -41,14 +41,18 @@ import {
   type FalconFlightGameState,
 } from './falconFlightConfig'
 
-type ObstacleKind = 'ledger' | 'quantum'
+type ObstacleKind = 'ledger' | 'quantum' | 'float' | 'weave'
 
 type ObstacleMeta = {
   kind: ObstacleKind
   scored: boolean
   gapCenterY?: number
   gapHalf?: number
+  /** Shared id so multi-piece sets only award one clear bonus */
+  setId?: number
 }
+
+type GateBias = 'high' | 'mid' | 'low' | 'random'
 
 /**
  * Falcon Flight — horizontal auto-scroller with juice pass.
@@ -99,6 +103,9 @@ export class FalconFlightScene extends Phaser.Scene {
   private newBestBanner!: Phaser.GameObjects.Text
 
   private wingFlap = 0
+  /** Last gate center Y — used to avoid mid-only corridors. */
+  private lastGapCenterY = 0
+  private obstacleSetId = 0
 
   constructor() {
     super('FalconFlightScene')
@@ -151,6 +158,8 @@ export class FalconFlightScene extends Phaser.Scene {
     )
 
     this.touchUi = createTouchAffordances(this, 'vertical')
+    this.touchUi.labelA.setText('ABOVE')
+    this.touchUi.labelB.setText('BELOW')
     this.setupInput()
     this.createHud(width, height)
     this.deathEmitter = createDeathEmitter(this)
@@ -164,8 +173,8 @@ export class FalconFlightScene extends Phaser.Scene {
         'Falcon Flight',
         [
           'Fly forward automatically.',
-          'Steer ↑↓ / W S or hold top / bottom of the screen.',
-          'Slip through ledger gaps — clear for bonus points.',
+          'Touch above the falcon to climb · below to dive (or ↑↓ / W S).',
+          'Weave through ledger gaps — placement varies every column.',
           `Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock Claim.`,
         ],
         () => {
@@ -318,27 +327,14 @@ export class FalconFlightScene extends Phaser.Scene {
         return
       }
       this.fadeTouchZonesOnce()
-      this.updateTouchZone(pointer.y)
-      if (pointer.y < this.scale.height / 2) {
-        this.pointerUpHeld = true
-        this.pointerDownHeld = false
-        this.touchUi.pulse('a')
-      } else {
-        this.pointerDownHeld = true
-        this.pointerUpHeld = false
-        this.touchUi.pulse('b')
-      }
+      this.applyPointerSteer(pointer.y)
+      if (this.touchZone === 'up') this.touchUi.pulse('a')
+      else if (this.touchZone === 'down') this.touchUi.pulse('b')
     })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown || this.paused) return
-      this.updateTouchZone(pointer.y)
-      if (pointer.y < this.scale.height / 2) {
-        this.pointerUpHeld = true
-        this.pointerDownHeld = false
-      } else {
-        this.pointerDownHeld = true
-        this.pointerUpHeld = false
-      }
+      if (this.state !== 'playing') return
+      this.applyPointerSteer(pointer.y)
     })
     this.input.on('pointerup', () => {
       this.pointerUpHeld = false
@@ -347,8 +343,27 @@ export class FalconFlightScene extends Phaser.Scene {
     })
   }
 
-  private updateTouchZone(y: number) {
-    this.touchZone = y < this.scale.height / 2 ? 'up' : 'down'
+  /**
+   * Touch relative to the falcon: above bird = climb, below = dive.
+   * Small dead-zone around the bird holds altitude for fine aiming.
+   */
+  private applyPointerSteer(pointerY: number) {
+    const dead = FALCON_FLIGHT.touchDeadZone * Math.min(1.25, this.hScale())
+    const birdY = this.falcon?.y ?? this.scale.height / 2
+    if (pointerY < birdY - dead) {
+      this.touchZone = 'up'
+      this.pointerUpHeld = true
+      this.pointerDownHeld = false
+    } else if (pointerY > birdY + dead) {
+      this.touchZone = 'down'
+      this.pointerUpHeld = false
+      this.pointerDownHeld = true
+    } else {
+      // Hold — don’t fight the player with micro-jitter
+      this.touchZone = 'none'
+      this.pointerUpHeld = false
+      this.pointerDownHeld = false
+    }
   }
 
   private fadeTouchZonesOnce() {
@@ -386,7 +401,7 @@ export class FalconFlightScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 24,
-        '↑↓ / W S  ·  hold top/bottom  ·  P pause  ·  SPACE start',
+        '↑↓ / W S  ·  touch above/below bird  ·  P pause  ·  SPACE start',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -505,7 +520,7 @@ export class FalconFlightScene extends Phaser.Scene {
     if (mode === 'ready') {
       title.setText('Falcon Flight')
       body.setText(
-        'Fly forward automatically. Steer up and down through ledger gaps and dodge quantum static.',
+        'Fly forward automatically. Touch above/below the falcon (or ↑↓) to weave through randomized ledger gaps.',
       )
       cta.setText('TAP / SPACE TO LAUNCH')
     } else {
@@ -541,6 +556,10 @@ export class FalconFlightScene extends Phaser.Scene {
     stopTrail(this.trail)
 
     this.obstacles.clear(true, true)
+    this.lastGapCenterY = 0
+    this.pointerUpHeld = false
+    this.pointerDownHeld = false
+    this.touchZone = 'none'
     this.falcon.setPosition(FALCON_FLIGHT.playerX, this.scale.height / 2)
     this.falcon.setVelocity(0, 0)
     this.falconVisual.setPosition(this.falcon.x, this.falcon.y)
@@ -556,7 +575,10 @@ export class FalconFlightScene extends Phaser.Scene {
     this.state = 'playing'
     this.hideOverlay()
     this.nextSpawnAt = this.time.now + 700
-    this.hudHint.setText('Steer clear · P to pause · claim at 100')
+    this.lastGapCenterY = this.falcon.y
+    this.hudHint.setText(
+      'Touch above/below bird · weave gaps · claim at 500',
+    )
     startTrail(this.trail, this.falcon)
     this.emitState('playing')
   }
@@ -726,41 +748,131 @@ export class FalconFlightScene extends Phaser.Scene {
     return this.scale.height / FALCON_FLIGHT.designHeight
   }
 
-  private spawnObstaclesIfNeeded() {
-    if (this.time.now < this.nextSpawnAt) return
-    const s = this.hScale()
-    // Keep gaps roomy relative to falcon size across portrait/landscape
-    const gap = Phaser.Math.Linear(
-      FALCON_FLIGHT.gapMax * s,
-      FALCON_FLIGHT.gapMin * s,
+  /** Soft height scale for spacing that must not explode on tall phones. */
+  private softH() {
+    return Phaser.Math.Clamp(this.hScale(), 0.95, 1.2)
+  }
+
+  private currentGapHeight(narrow = false): number {
+    const { height } = this.scale
+    const ratio = Phaser.Math.Linear(
+      FALCON_FLIGHT.gapMaxRatio,
+      FALCON_FLIGHT.gapMinRatio,
       this.difficulty,
     )
+    let gap = height * (narrow ? ratio * 0.82 : ratio)
+    const floor =
+      FALCON_FLIGHT.gapFloorPx * this.softH() +
+      FALCON_FLIGHT.playerRadius * 2 +
+      28
+    gap = Math.max(floor, gap)
+    const maxGap = height * 0.42
+    return Math.min(gap, maxGap)
+  }
+
+  private spawnObstaclesIfNeeded() {
+    if (this.time.now < this.nextSpawnAt) return
     const interval = Phaser.Math.Linear(
       FALCON_FLIGHT.spawnMaxMs,
       FALCON_FLIGHT.spawnMinMs,
       this.difficulty,
     )
-    if (Math.random() < 0.22 + this.difficulty * 0.12) this.spawnQuantumBarrier()
-    else this.spawnLedgerPair(gap)
-    this.nextSpawnAt = this.time.now + interval * Phaser.Math.FloatBetween(0.9, 1.15)
+
+    // Weighted variety — more weave/float as difficulty rises
+    const roll = Math.random()
+    const d = this.difficulty
+    if (roll < 0.14 + d * 0.1) {
+      this.spawnQuantumBarrier()
+    } else if (roll < 0.28 + d * 0.12) {
+      this.spawnFloatingBlock()
+    } else if (roll < 0.42 + d * 0.14) {
+      this.spawnWeaveGates()
+    } else if (roll < 0.55) {
+      this.spawnLedgerPair(this.currentGapHeight(true), this.pickBias(['high', 'low']))
+    } else {
+      this.spawnLedgerPair(this.currentGapHeight(false), this.pickBias(['high', 'mid', 'low', 'random']))
+    }
+
+    this.nextSpawnAt =
+      this.time.now + interval * Phaser.Math.FloatBetween(0.88, 1.12)
   }
 
-  private spawnLedgerPair(gapHeight: number) {
+  private pickBias(options: GateBias[]): GateBias {
+    return options[Phaser.Math.Between(0, options.length - 1)]
+  }
+
+  /**
+   * Choose a gap center that is playable, randomized, and often forced away
+   * from the previous gate so mid-lane autopilot stops working.
+   */
+  private pickGapCenter(gap: number, bias: GateBias = 'random'): number {
+    const { height } = this.scale
+    const margin = Math.max(40, 44 * this.softH())
+    const minC = margin + gap / 2
+    const maxC = height - margin - gap / 2
+    if (maxC <= minC) return height / 2
+
+    let center: number
+    if (bias === 'high') {
+      center = Phaser.Math.FloatBetween(minC, minC + (maxC - minC) * 0.38)
+    } else if (bias === 'low') {
+      center = Phaser.Math.FloatBetween(minC + (maxC - minC) * 0.62, maxC)
+    } else if (bias === 'mid') {
+      const mid = (minC + maxC) / 2
+      const wobble = (maxC - minC) * 0.12
+      center = Phaser.Math.FloatBetween(mid - wobble, mid + wobble)
+    } else {
+      center = Phaser.Math.FloatBetween(minC, maxC)
+    }
+
+    // Avoid repeating nearly the same corridor as last set
+    if (this.lastGapCenterY > 0) {
+      const minShift = Math.max(gap * 0.55, height * 0.14)
+      let tries = 0
+      while (
+        Math.abs(center - this.lastGapCenterY) < minShift &&
+        tries < 8
+      ) {
+        center = Phaser.Math.FloatBetween(minC, maxC)
+        tries += 1
+      }
+      // If still close, hard-nudge opposite of last
+      if (Math.abs(center - this.lastGapCenterY) < minShift) {
+        center =
+          this.lastGapCenterY < height / 2
+            ? Phaser.Math.FloatBetween(minC + (maxC - minC) * 0.55, maxC)
+            : Phaser.Math.FloatBetween(minC, minC + (maxC - minC) * 0.45)
+      }
+    }
+
+    this.lastGapCenterY = center
+    return center
+  }
+
+  private nextSetId() {
+    this.obstacleSetId += 1
+    return this.obstacleSetId
+  }
+
+  private spawnLedgerPair(gapHeight: number, bias: GateBias = 'random') {
     const { width, height } = this.scale
     const x = width + 50
-    const margin = Math.max(48, 50 * this.hScale())
-    const minGap = Math.max(gapHeight, FALCON_FLIGHT.playerRadius * 2 + 90 * this.hScale())
-    const gap = Math.min(minGap, height - margin * 2 - 20)
-    const gapCenter = Phaser.Math.Between(
-      margin + gap / 2,
-      height - margin - gap / 2,
-    )
+    const gap = gapHeight
+    const gapCenter = this.pickGapCenter(gap, bias)
     const topBottom = gapCenter - gap / 2
     const bottomTop = gapCenter + gap / 2
-    const blockWidth = 52
-    const topHeight = Math.max(24, topBottom)
-    const bottomHeight = Math.max(24, height - bottomTop)
+    const blockWidth = 54
+    const topHeight = Math.max(28, topBottom)
+    const bottomHeight = Math.max(28, height - bottomTop)
+    const setId = this.nextSetId()
 
+    const meta: ObstacleMeta = {
+      kind: 'ledger',
+      scored: false,
+      gapCenterY: gapCenter,
+      gapHalf: gap / 2,
+      setId,
+    }
     const top = this.spawnScaledBlock(x, topHeight / 2, blockWidth, topHeight, 'ledger')
     const bottom = this.spawnScaledBlock(
       x,
@@ -769,40 +881,122 @@ export class FalconFlightScene extends Phaser.Scene {
       bottomHeight,
       'ledger',
     )
+    top.setData('meta', meta)
+    bottom.setData('meta', meta)
+  }
+
+  /** Single floating ledger — must go above or below (not a centered corridor). */
+  private spawnFloatingBlock() {
+    const { width, height } = this.scale
+    const x = width + 50
+    const s = this.softH()
+    const blockH = Phaser.Math.Between(Math.round(110 * s), Math.round(190 * s))
+    const blockW = 56
+    const margin = Math.max(50, 56 * s)
+    // Place so both passages are usable but one is usually tighter
+    const minY = margin + blockH / 2
+    const maxY = height - margin - blockH / 2
+    let cy = Phaser.Math.FloatBetween(minY, maxY)
+    // Bias away from pure center often
+    if (Math.random() < 0.55) {
+      cy =
+        Math.random() < 0.5
+          ? Phaser.Math.FloatBetween(minY, height * 0.42)
+          : Phaser.Math.FloatBetween(height * 0.58, maxY)
+    }
+    const setId = this.nextSetId()
+    const passageAbove = cy - blockH / 2
+    const passageBelow = height - (cy + blockH / 2)
+    const preferred =
+      passageAbove > passageBelow
+        ? cy - blockH / 2 - passageAbove / 2
+        : cy + blockH / 2 + passageBelow / 2
+    this.lastGapCenterY = preferred
+
     const meta: ObstacleMeta = {
-      kind: 'ledger',
+      kind: 'float',
+      scored: false,
+      gapCenterY: preferred,
+      gapHalf: Math.max(passageAbove, passageBelow) / 2,
+      setId,
+    }
+    const block = this.spawnScaledBlock(x, cy, blockW, blockH, 'ledger')
+    block.setData('meta', meta)
+  }
+
+  /** Two staggered gates — forces vertical weave between columns. */
+  private spawnWeaveGates() {
+    const { width } = this.scale
+    const gapA = this.currentGapHeight(true)
+    const gapB = this.currentGapHeight(Math.random() < 0.5)
+    const biasA = this.pickBias(['high', 'low'])
+    const biasB = biasA === 'high' ? 'low' : 'high'
+    const spacing = Phaser.Math.Between(130, 190) * this.softH()
+    const x0 = width + 50
+
+    // First column
+    this.spawnLedgerPairAt(x0, gapA, biasA)
+    // Second column (offset X, opposite bias)
+    this.spawnLedgerPairAt(x0 + spacing, gapB, biasB as GateBias)
+  }
+
+  private spawnLedgerPairAt(x: number, gapHeight: number, bias: GateBias) {
+    const { height } = this.scale
+    const gap = gapHeight
+    const gapCenter = this.pickGapCenter(gap, bias)
+    const topBottom = gapCenter - gap / 2
+    const bottomTop = gapCenter + gap / 2
+    const blockWidth = 50
+    const topHeight = Math.max(28, topBottom)
+    const bottomHeight = Math.max(28, height - bottomTop)
+    const setId = this.nextSetId()
+    const meta: ObstacleMeta = {
+      kind: 'weave',
       scored: false,
       gapCenterY: gapCenter,
       gapHalf: gap / 2,
+      setId,
     }
+    const top = this.spawnScaledBlock(x, topHeight / 2, blockWidth, topHeight, 'ledger')
+    const bottom = this.spawnScaledBlock(
+      x,
+      bottomTop + bottomHeight / 2,
+      blockWidth,
+      bottomHeight,
+      'ledger',
+    )
     top.setData('meta', meta)
     bottom.setData('meta', meta)
   }
 
   private spawnQuantumBarrier() {
     const { width, height } = this.scale
-    const s = this.hScale()
     const x = width + 40
-    const slotH = Phaser.Math.Linear(170 * s, 130 * s, this.difficulty)
-    const margin = Math.max(70, 80 * s)
-    const slotCenter = Phaser.Math.Between(margin, height - margin)
-    const barW = 24
-    const topH = Math.max(20, slotCenter - slotH / 2)
+    const slotH = this.currentGapHeight(true) * 0.95
+    const slotCenter = this.pickGapCenter(slotH, this.pickBias(['high', 'low', 'random']))
+    const barW = 26
+    const topH = Math.max(22, slotCenter - slotH / 2)
     const botY = slotCenter + slotH / 2
-    const botH = Math.max(20, height - botY)
+    const botH = Math.max(22, height - botY)
+    const setId = this.nextSetId()
     const meta: ObstacleMeta = {
       kind: 'quantum',
       scored: false,
       gapCenterY: slotCenter,
       gapHalf: slotH / 2,
+      setId,
     }
     for (const seg of [
       { y: topH / 2, h: topH },
       { y: botY + botH / 2, h: botH },
     ]) {
-      const bar = this.obstacles.create(x, seg.y, 'quantum-bar') as Phaser.Physics.Arcade.Image
-      // Tighter hitboxes so visual gaps match collision
-      this.fitObstacleBody(bar, barW, seg.h, 0.7, 0.86)
+      const bar = this.obstacles.create(
+        x,
+        seg.y,
+        'quantum-bar',
+      ) as Phaser.Physics.Arcade.Image
+      // Hitboxes match visuals more closely — less “ghosting” through bars
+      this.fitObstacleBody(bar, barW, seg.h, 0.88, 0.94)
       bar.setData('meta', meta)
       bar.setDepth(5)
       bar.setImmovable(true)
@@ -817,9 +1011,10 @@ export class FalconFlightScene extends Phaser.Scene {
     h: number,
     kind: ObstacleKind,
   ) {
-    const key = kind === 'ledger' ? 'ledger-block' : 'quantum-bar'
+    const key =
+      kind === 'quantum' ? 'quantum-bar' : 'ledger-block'
     const block = this.obstacles.create(x, y, key) as Phaser.Physics.Arcade.Image
-    this.fitObstacleBody(block, w, h, 0.7, 0.86)
+    this.fitObstacleBody(block, w, h, 0.88, 0.94)
     block.setImmovable(true)
     block.setDepth(5)
     return block
@@ -829,8 +1024,8 @@ export class FalconFlightScene extends Phaser.Scene {
     obj: Phaser.Physics.Arcade.Image,
     displayW: number,
     displayH: number,
-    hitScaleX = 0.7,
-    hitScaleY = 0.86,
+    hitScaleX = 0.88,
+    hitScaleY = 0.94,
   ) {
     obj.setDisplaySize(displayW, displayH)
     const body = obj.body as Phaser.Physics.Arcade.Body

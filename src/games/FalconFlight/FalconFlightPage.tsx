@@ -57,7 +57,7 @@ export function FalconFlightPage() {
 
   const statusBody =
     gameState === 'playing'
-      ? 'Steer with ↑↓ / W S or touch the top or bottom half of the canvas. Clear gaps for bonus points.'
+      ? 'Touch above the falcon to climb, below to dive (or ↑↓ / W S). Gaps move high and low — don’t fly mid forever.'
       : gameState === 'gameover'
         ? `Final score ${score}. Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
         : `Horizontal auto-scroller — fly forward, dodge ledger blocks and quantum static. Claim unlocks at ${FALCON_FLIGHT_REWARD_THRESHOLD} points.`
