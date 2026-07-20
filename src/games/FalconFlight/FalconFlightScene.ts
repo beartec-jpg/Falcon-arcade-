@@ -106,6 +106,10 @@ export class FalconFlightScene extends Phaser.Scene {
   /** Last gate center Y — used to avoid mid-only corridors. */
   private lastGapCenterY = 0
   private obstacleSetId = 0
+  /** Cancelled on restart so "Signal Lost" cannot pop mid-flight. */
+  private gameOverTimer?: Phaser.Time.TimerEvent
+  /** Brief spawn protection after launch / restart. */
+  private invulnUntil = 0
 
   constructor() {
     super('FalconFlightScene')
@@ -153,7 +157,7 @@ export class FalconFlightScene extends Phaser.Scene {
       this.falcon,
       this.obstacles,
       () => this.handleCrash(),
-      undefined,
+      () => this.time.now >= this.invulnUntil,
       this,
     )
 
@@ -513,6 +517,9 @@ export class FalconFlightScene extends Phaser.Scene {
   }
 
   private showOverlay(mode: 'ready' | 'gameover') {
+    // Never show game-over chrome unless we are actually dead
+    if (mode === 'gameover' && this.state !== 'gameover') return
+
     this.createOverlay()
     const title = this.overlay.getData('title') as Phaser.GameObjects.Text
     const body = this.overlay.getData('body') as Phaser.GameObjects.Text
@@ -531,15 +538,28 @@ export class FalconFlightScene extends Phaser.Scene {
       cta.setText('TAP / SPACE TO RESTART')
     }
     this.overlay.setVisible(true)
+    this.overlay.setActive(true)
   }
 
   private hideOverlay() {
-    if (this.overlay) this.overlay.setVisible(false)
+    if (!this.overlay) return
+    this.overlay.setVisible(false)
+    this.overlay.setActive(false)
+    // Drop interactive hit target so it cannot block play input
+    if (this.overlay.input) this.overlay.disableInteractive()
+  }
+
+  private clearGameOverTimer() {
+    if (this.gameOverTimer) {
+      this.gameOverTimer.remove(false)
+      this.gameOverTimer = undefined
+    }
   }
 
   // ── lifecycle ──────────────────────────────────────────
 
   private resetRun(_preserveBest: boolean) {
+    this.clearGameOverTimer()
     this.state = 'ready'
     this.paused = false
     this.physics.resume()
@@ -565,17 +585,25 @@ export class FalconFlightScene extends Phaser.Scene {
     this.falconVisual.setPosition(this.falcon.x, this.falcon.y)
     this.falconVisual.setAlpha(1)
     this.falconVisual.setAngle(0)
+    this.tweens.killTweensOf(this.falconVisual)
     this.hudScore.setText('SCORE  0')
     this.hudScore.setColor('#f1f5f9')
+    this.hideOverlay()
     this.emitScore(0)
   }
 
   private beginRun() {
     if (this.waitingHowTo) return
+    this.clearGameOverTimer()
     this.state = 'playing'
     this.hideOverlay()
-    this.nextSpawnAt = this.time.now + 700
+    // Grace window so leftover collisions / spawn edge cannot flash "Signal Lost"
+    this.nextSpawnAt = this.time.now + 900
+    this.invulnUntil = this.time.now + 700
     this.lastGapCenterY = this.falcon.y
+    this.falconVisual.setAlpha(1)
+    this.falconVisual.setAngle(0)
+    this.tweens.killTweensOf(this.falconVisual)
     this.hudHint.setText(
       'Touch above/below bird · weave gaps · claim at 500',
     )
@@ -588,6 +616,7 @@ export class FalconFlightScene extends Phaser.Scene {
     this.state = 'gameover'
     this.falcon.setVelocity(0, 0)
     stopTrail(this.trail)
+    this.clearGameOverTimer()
 
     playDeathJuice(
       this,
@@ -597,6 +626,7 @@ export class FalconFlightScene extends Phaser.Scene {
       this.deathEmitter,
     )
 
+    this.tweens.killTweensOf(this.falconVisual)
     this.tweens.add({
       targets: this.falconVisual,
       alpha: 0.2,
@@ -605,7 +635,10 @@ export class FalconFlightScene extends Phaser.Scene {
       ease: 'Quad.easeOut',
     })
 
-    this.time.delayedCall(340, () => {
+    this.gameOverTimer = this.time.delayedCall(340, () => {
+      this.gameOverTimer = undefined
+      // Only show if we are still on the death screen (not restarted)
+      if (this.state !== 'gameover') return
       this.showOverlay('gameover')
       this.emitState('gameover')
       this.emitScore(this.score)
