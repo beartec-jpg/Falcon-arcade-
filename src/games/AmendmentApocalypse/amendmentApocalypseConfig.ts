@@ -41,10 +41,18 @@ export const AA = {
   /** Consensus */
   shieldMs: 2000,
   maxWeaponTier: 6,
-  /** Spawning */
-  spawnMaxMs: 1600,
-  spawnMinMs: 650,
-  difficultyRampSeconds: 90,
+  /** Spawning — ramps harder over time and harder still at high weapon tier */
+  spawnMaxMs: 1400,
+  spawnMinMs: 420,
+  difficultyRampSeconds: 70,
+  /** Extra spawn pressure when weapon is strong (tier 1..6 → 0..1) */
+  highTierSpawnMult: 0.55,
+  /** Max Amendments + Hard Forks allowed on the field at once */
+  maxPickupsOnField: 2,
+  /** Drop rates (corrupt is higher; both fall as tier rises) */
+  amendDropBase: 0.07,
+  amendDropCorrupt: 0.22,
+  hardForkDropBase: 0.015,
   /** Scoring */
   survivalPtsPerSec: 4,
   killBase: 8,
@@ -52,7 +60,7 @@ export const AA = {
   comboStep: 0.25,
   maxComboMult: 4,
   tierHoldBonusPerSec: 1.5,
-  hardForkFireBoostMs: 4000,
+  hardForkFireBoostMs: 3500,
   hardForkFireMult: 0.55,
 } as const
 

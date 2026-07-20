@@ -1075,26 +1075,58 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
 
   private spawnBugsIfNeeded() {
     if (this.time.now < this.nextSpawnAt) return
-    const interval = Phaser.Math.Linear(
-      AA.spawnMaxMs,
-      AA.spawnMinMs,
-      this.difficulty,
+
+    // Tier heat: full Amendments (6) almost doubles pressure vs tier 1
+    const tierHeat = (this.weaponTier - 1) / Math.max(1, AA.maxWeaponTier - 1)
+    const heat = Phaser.Math.Clamp(
+      this.difficulty * 0.65 + tierHeat * AA.highTierSpawnMult,
+      0,
+      1,
     )
-    this.spawnBug(this.pickBugKind())
-    if (this.difficulty > 0.4 && Math.random() < 0.35) {
-      this.time.delayedCall(200, () => {
-        if (this.state === 'playing') this.spawnBug(this.pickBugKind())
+    const interval = Phaser.Math.Linear(AA.spawnMaxMs, AA.spawnMinMs, heat)
+
+    this.spawnBug(this.pickBugKind(heat))
+    // Double / triple packs scale with heat (brutal at full power)
+    if (heat > 0.25 && Math.random() < 0.25 + heat * 0.35) {
+      this.time.delayedCall(140, () => {
+        if (this.state === 'playing') this.spawnBug(this.pickBugKind(heat))
       })
     }
+    if (heat > 0.55 && Math.random() < 0.2 + tierHeat * 0.35) {
+      this.time.delayedCall(280, () => {
+        if (this.state === 'playing') this.spawnBug(this.pickBugKind(heat))
+      })
+    }
+    // At max tier, occasional race rush
+    if (this.weaponTier >= 5 && Math.random() < 0.18 + tierHeat * 0.15) {
+      this.time.delayedCall(80, () => {
+        if (this.state === 'playing') this.spawnBug('race')
+      })
+    }
+
     this.nextSpawnAt =
-      this.time.now + interval * Phaser.Math.FloatBetween(0.85, 1.15)
+      this.time.now + interval * Phaser.Math.FloatBetween(0.8, 1.1)
   }
 
-  private pickBugKind(): BugKind {
-    const r = Math.random() + this.difficulty * 0.15
-    if (r < 0.35) return 'null'
-    if (r < 0.6) return 'race'
-    if (r < 0.82) return 'loop'
+  private pickBugKind(heat = this.difficulty): BugKind {
+    // Higher heat → fewer nulls, more race/loop/corrupt
+    const r = Math.random()
+    if (heat < 0.35) {
+      if (r < 0.4) return 'null'
+      if (r < 0.65) return 'race'
+      if (r < 0.85) return 'loop'
+      return 'corrupt'
+    }
+    if (heat < 0.7) {
+      if (r < 0.22) return 'null'
+      if (r < 0.5) return 'race'
+      if (r < 0.78) return 'loop'
+      return 'corrupt'
+    }
+    // Full power / late game
+    if (r < 0.12) return 'null'
+    if (r < 0.42) return 'race'
+    if (r < 0.72) return 'loop'
     return 'corrupt'
   }
 
@@ -1142,24 +1174,30 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       scored: false,
     }
 
+    const tierHeat = (this.weaponTier - 1) / Math.max(1, AA.maxWeaponTier - 1)
+    const speedBoost = 1 + this.difficulty * 0.45 + tierHeat * 0.55
+
     if (kind === 'null') {
       const ang = Math.atan2(this.ship.y - y, this.ship.x - x)
-      const spd = 55 + this.difficulty * 40
+      const spd = (60 + this.difficulty * 50) * speedBoost
       body.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
     } else if (kind === 'race') {
       const ang = Math.atan2(this.ship.y - y, this.ship.x - x)
-      const spd = 180 + this.difficulty * 120
+      const spd = (200 + this.difficulty * 140) * speedBoost
       body.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
       bug.setAngle(Phaser.Math.RadToDeg(ang))
     } else if (kind === 'loop') {
-      meta.orbitR = Phaser.Math.Between(70, 120)
-      meta.orbitSpeed = (1.2 + this.difficulty) * (Math.random() < 0.5 ? 1 : -1)
+      meta.orbitR = Phaser.Math.Between(60, 110)
+      meta.orbitSpeed =
+        (1.4 + this.difficulty * 1.1 + tierHeat * 0.8) *
+        (Math.random() < 0.5 ? 1 : -1)
       meta.angle = Math.random() * Math.PI * 2
       body.setVelocity(0, 0)
     } else {
       const ang = Math.atan2(this.ship.y - y, this.ship.x - x)
-      const spd = 40 + this.difficulty * 30
+      const spd = (48 + this.difficulty * 40) * speedBoost
       body.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
+      meta.hp = 4 + Math.floor(this.difficulty * 3) + Math.floor(tierHeat * 3)
     }
 
     bug.setData('meta', meta)
@@ -1180,9 +1218,19 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
         // gentle drift toward player
         const ang = Math.atan2(this.ship.y - bug.y, this.ship.x - bug.x)
         const body = bug.body as Phaser.Physics.Arcade.Body
-        const spd = 50 + this.difficulty * 35
-        body.velocity.x = Phaser.Math.Linear(body.velocity.x, Math.cos(ang) * spd, 0.02)
-        body.velocity.y = Phaser.Math.Linear(body.velocity.y, Math.sin(ang) * spd, 0.02)
+        const tierHeat =
+          (this.weaponTier - 1) / Math.max(1, AA.maxWeaponTier - 1)
+        const spd = (55 + this.difficulty * 45) * (1 + tierHeat * 0.4)
+        body.velocity.x = Phaser.Math.Linear(
+          body.velocity.x,
+          Math.cos(ang) * spd,
+          0.03 + tierHeat * 0.02,
+        )
+        body.velocity.y = Phaser.Math.Linear(
+          body.velocity.y,
+          Math.sin(ang) * spd,
+          0.03 + tierHeat * 0.02,
+        )
       }
     }
   }
@@ -1260,13 +1308,38 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       meta.kind === 'corrupt' ? '#f472b6' : '#d4922a',
     )
 
-    // Drops
-    let dropChance = meta.kind === 'corrupt' ? 0.55 : 0.12
-    dropChance += this.difficulty * 0.05
-    if (Math.random() < dropChance) {
-      this.spawnPickup(bug.x, bug.y, 'amendment')
-    } else if (Math.random() < 0.04 + this.difficulty * 0.03) {
-      this.spawnPickup(bug.x, bug.y, 'hardfork')
+    // Drops — rarer overall, much rarer when already powered up
+    this.maybeDropPickup(bug.x, bug.y, meta.kind)
+  }
+
+  private maybeDropPickup(x: number, y: number, kind: BugKind) {
+    const onField = this.pickups.countActive(true)
+    if (onField >= AA.maxPickupsOnField) return
+
+    // At tier 6, suppress almost everything; at low tier, allow a few
+    const tierHeat = (this.weaponTier - 1) / Math.max(1, AA.maxWeaponTier - 1)
+    const scarcity = 1 - tierHeat * 0.85 // tier 6 → ~0.15 of base rates
+
+    let amendChance =
+      (kind === 'corrupt' ? AA.amendDropCorrupt : AA.amendDropBase) * scarcity
+    // No Amendments needed if already maxed — only rare hard forks for clear
+    if (this.weaponTier >= AA.maxWeaponTier) {
+      amendChance *= 0.08
+    } else if (this.weaponTier >= 5) {
+      amendChance *= 0.35
+    } else if (this.weaponTier >= 4) {
+      amendChance *= 0.55
+    }
+
+    if (Math.random() < amendChance) {
+      this.spawnPickup(x, y, 'amendment')
+      return
+    }
+
+    let forkChance = AA.hardForkDropBase * scarcity
+    if (this.weaponTier >= 5) forkChance *= 0.5
+    if (Math.random() < forkChance) {
+      this.spawnPickup(x, y, 'hardfork')
     }
   }
 
