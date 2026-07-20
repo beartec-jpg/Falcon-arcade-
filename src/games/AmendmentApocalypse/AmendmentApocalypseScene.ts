@@ -138,9 +138,11 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
 
     this.trail = createPlayerTrail(this, 8)
     this.shipVisual = this.buildShipVisual(width / 2, height / 2)
+    // Slightly smaller craft so the arena reads zoomed-out / roomier
+    this.shipVisual.setScale(0.88)
     this.ship = this.physics.add.image(width / 2, height / 2, 'ship-hit')
     this.ship.setVisible(false)
-    this.ship.setCircle(12)
+    this.ship.setCircle(11)
     this.ship.setCollideWorldBounds(true)
     this.ship.setBounce(0.15)
     this.ship.setDamping(true)
