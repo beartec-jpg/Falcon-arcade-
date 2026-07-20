@@ -180,10 +180,10 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
         this,
         'Amendment Apocalypse',
         [
-          'WASD / drag to fly. Ship faces your thrust.',
-          'Weapons auto-fire. Collect Amendments to upgrade (max 6).',
-          'Hit → drop a tier. Two hits without an Amendment → Consensus Broken.',
-          `Amendments grant 2s shield. Claim at ${AMENDMENT_REWARD_THRESHOLD}.`,
+          'WASD / drag to fly. Auto-fire weapons.',
+          'ENEMIES: red-marked bugs (drone, missile, spiked ring, ERROR block).',
+          'POWERUPS: gold scroll with green + (Amendment) · gold star (Hard Fork).',
+          '2 hits without an Amendment → Consensus Broken. Claim at 100.',
         ],
         () => {
           markHowToSeen(AMENDMENT_SLUG)
@@ -293,71 +293,181 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       g.generateTexture('bullet-home', 12, 5)
       g.destroy()
     }
-    if (!this.textures.exists('bug-null')) {
-      this.makeBugTex('bug-null', AA_COLORS.nullBug, 18, false)
+    // Force-refresh entity art so hostile vs friendly is always clear
+    for (const key of [
+      'bug-null',
+      'bug-race',
+      'bug-loop',
+      'bug-corrupt',
+      'pickup-amend',
+      'pickup-fork',
+    ]) {
+      if (this.textures.exists(key)) this.textures.remove(key)
     }
-    if (!this.textures.exists('bug-race')) {
-      this.makeBugTex('bug-race', AA_COLORS.raceBug, 16, true)
-    }
-    if (!this.textures.exists('bug-loop')) {
-      this.makeBugTex('bug-loop', AA_COLORS.loopBug, 17, false)
-    }
-    if (!this.textures.exists('bug-corrupt')) {
-      const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(AA_COLORS.corrupt, 0.95)
-      g.fillRoundedRect(0, 0, 36, 36, 4)
-      g.lineStyle(2, AA_COLORS.bronze, 0.9)
-      g.strokeRoundedRect(1, 1, 34, 34, 4)
-      g.lineStyle(1, AA_COLORS.danger, 0.7)
-      g.lineBetween(6, 10, 30, 10)
-      g.lineBetween(6, 18, 30, 18)
-      g.lineBetween(6, 26, 30, 26)
-      g.generateTexture('bug-corrupt', 36, 36)
-      g.destroy()
-    }
-    if (!this.textures.exists('pickup-amend')) {
-      const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(AA_COLORS.bronzeBright, 0.25)
-      g.fillCircle(12, 12, 12)
-      g.fillStyle(AA_COLORS.bronze, 1)
-      g.fillRoundedRect(5, 4, 14, 16, 2)
-      g.lineStyle(1.5, AA_COLORS.hardFork, 0.95)
-      g.strokeRoundedRect(5, 4, 14, 16, 2)
-      g.lineStyle(1, AA_COLORS.hardFork, 0.8)
-      g.lineBetween(8, 9, 16, 9)
-      g.lineBetween(8, 13, 16, 13)
-      g.generateTexture('pickup-amend', 24, 24)
-      g.destroy()
-    }
-    if (!this.textures.exists('pickup-fork')) {
-      const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(AA_COLORS.hardFork, 0.3)
-      g.fillCircle(14, 14, 14)
-      g.fillStyle(AA_COLORS.hardFork, 1)
-      g.fillTriangle(14, 4, 6, 22, 22, 22)
-      g.fillStyle(AA_COLORS.bg, 1)
-      g.fillCircle(14, 14, 4)
-      g.generateTexture('pickup-fork', 28, 28)
-      g.destroy()
-    }
+    this.drawEnemyNull()
+    this.drawEnemyRace()
+    this.drawEnemyLoop()
+    this.drawEnemyCorrupt()
+    this.drawPickupAmendment()
+    this.drawPickupHardFork()
   }
 
-  private makeBugTex(key: string, color: number, size: number, pointed: boolean) {
+  /** Slow grey drone — hollow body + red X (hostile null). */
+  private drawEnemyNull() {
+    const s = 28
     const g = this.make.graphics({ x: 0, y: 0 })
-    if (pointed) {
-      g.fillStyle(color, 1)
-      g.fillTriangle(0, size / 2, size, 0, size, size)
-      g.lineStyle(1.5, AA_COLORS.bronzeBright, 0.8)
-      g.strokeTriangle(0, size / 2, size, 0, size, size)
-    } else {
-      g.fillStyle(color, 0.95)
-      g.fillCircle(size / 2, size / 2, size / 2 - 1)
-      g.lineStyle(1.5, AA_COLORS.bronze, 0.7)
-      g.strokeCircle(size / 2, size / 2, size / 2 - 1)
-      g.fillStyle(AA_COLORS.bg, 0.9)
-      g.fillCircle(size / 2, size / 2, 3)
-    }
-    g.generateTexture(key, size, size)
+    // Danger halo
+    g.lineStyle(2, AA_COLORS.danger, 0.55)
+    g.strokeCircle(s / 2, s / 2, s / 2 - 1)
+    // Body
+    g.fillStyle(0x475569, 1)
+    g.fillCircle(s / 2, s / 2, 10)
+    g.lineStyle(2, 0x94a3b8, 0.95)
+    g.strokeCircle(s / 2, s / 2, 10)
+    // Null slash eyes
+    g.lineStyle(2.5, AA_COLORS.danger, 1)
+    g.lineBetween(8, 10, 12, 14)
+    g.lineBetween(12, 10, 8, 14)
+    g.lineBetween(16, 10, 20, 14)
+    g.lineBetween(20, 10, 16, 14)
+    // Mouth bar
+    g.lineStyle(2, AA_COLORS.danger, 0.85)
+    g.lineBetween(10, 18, 18, 18)
+    g.generateTexture('bug-null', s, s)
+    g.destroy()
+  }
+
+  /** Fast charger — red-tipped arrow missile. */
+  private drawEnemyRace() {
+    const w = 30
+    const h = 20
+    const g = this.make.graphics({ x: 0, y: 0 })
+    // Body wedge
+    g.fillStyle(0xf59e0b, 1)
+    g.fillTriangle(0, h / 2, w - 8, 2, w - 8, h - 2)
+    // Red danger tip
+    g.fillStyle(AA_COLORS.danger, 1)
+    g.fillTriangle(w - 10, h / 2, w, 4, w, h - 4)
+    // Outline
+    g.lineStyle(2, 0x7f1d1d, 0.95)
+    g.strokeTriangle(0, h / 2, w, 4, w, h - 4)
+    // Speed notches
+    g.lineStyle(1.5, 0x450a0a, 0.8)
+    g.lineBetween(6, 6, 6, h - 6)
+    g.lineBetween(11, 5, 11, h - 5)
+    g.generateTexture('bug-race', w, h)
+    g.destroy()
+  }
+
+  /** Orbiting loop — green ring with red spikes (clearly not a pickup). */
+  private drawEnemyLoop() {
+    const s = 30
+    const c = s / 2
+    const g = this.make.graphics({ x: 0, y: 0 })
+    // Outer danger ring
+    g.lineStyle(3, AA_COLORS.danger, 0.5)
+    g.strokeCircle(c, c, 13)
+    // Main loop body
+    g.lineStyle(4, 0x059669, 1)
+    g.strokeCircle(c, c, 10)
+    g.lineStyle(2, 0x6ee7b7, 0.95)
+    g.strokeCircle(c, c, 10)
+    // Inner void
+    g.fillStyle(AA_COLORS.bg, 0.85)
+    g.fillCircle(c, c, 5)
+    // Hostile spikes
+    g.fillStyle(AA_COLORS.danger, 1)
+    g.fillTriangle(c, 1, c - 3, 7, c + 3, 7)
+    g.fillTriangle(c, s - 1, c - 3, s - 7, c + 3, s - 7)
+    g.fillTriangle(1, c, 7, c - 3, 7, c + 3)
+    g.fillTriangle(s - 1, c, s - 7, c - 3, s - 7, c + 3)
+    g.generateTexture('bug-loop', s, s)
+    g.destroy()
+  }
+
+  /** Tank corrupt block — big magenta brick, ERROR bars, red corners. */
+  private drawEnemyCorrupt() {
+    const s = 40
+    const g = this.make.graphics({ x: 0, y: 0 })
+    // Shadow plate
+    g.fillStyle(0x831843, 0.9)
+    g.fillRoundedRect(2, 2, s - 2, s - 2, 4)
+    // Main block
+    g.fillStyle(0xdb2777, 1)
+    g.fillRoundedRect(0, 0, s - 4, s - 4, 4)
+    g.lineStyle(2.5, AA_COLORS.danger, 1)
+    g.strokeRoundedRect(0, 0, s - 4, s - 4, 4)
+    // Code lines
+    g.lineStyle(2, 0xfbcfe8, 0.85)
+    g.lineBetween(6, 10, 30, 10)
+    g.lineBetween(6, 17, 26, 17)
+    g.lineBetween(6, 24, 28, 24)
+    // ERROR tag
+    g.fillStyle(AA_COLORS.danger, 1)
+    g.fillRect(6, 28, 22, 6)
+    // Corner ticks (hostile)
+    g.fillStyle(0xfef2f2, 1)
+    g.fillRect(0, 0, 6, 3)
+    g.fillRect(0, 0, 3, 6)
+    g.fillRect(s - 10, 0, 6, 3)
+    g.fillRect(s - 7, 0, 3, 6)
+    g.generateTexture('bug-corrupt', s, s)
+    g.destroy()
+  }
+
+  /** Friendly Amendment scroll + big green plus (cannot confuse with bugs). */
+  private drawPickupAmendment() {
+    const s = 36
+    const g = this.make.graphics({ x: 0, y: 0 })
+    // Soft gold halo (friendly)
+    g.fillStyle(AA_COLORS.bronzeBright, 0.22)
+    g.fillCircle(s / 2, s / 2, 17)
+    g.lineStyle(2, AA_COLORS.hardFork, 0.7)
+    g.strokeCircle(s / 2, s / 2, 16)
+    // Scroll body
+    g.fillStyle(0xfef3c7, 1)
+    g.fillRoundedRect(10, 6, 16, 22, 2)
+    g.lineStyle(2, AA_COLORS.bronze, 1)
+    g.strokeRoundedRect(10, 6, 16, 22, 2)
+    // Text lines
+    g.lineStyle(1.5, AA_COLORS.bronzeDark, 0.75)
+    g.lineBetween(13, 12, 23, 12)
+    g.lineBetween(13, 16, 23, 16)
+    g.lineBetween(13, 20, 20, 20)
+    // Big green PLUS badge
+    g.fillStyle(0x22c55e, 1)
+    g.fillCircle(26, 26, 8)
+    g.lineStyle(2, 0xbbf7d0, 1)
+    g.strokeCircle(26, 26, 8)
+    g.lineStyle(3, 0xffffff, 1)
+    g.lineBetween(26, 21, 26, 31)
+    g.lineBetween(21, 26, 31, 26)
+    g.generateTexture('pickup-amend', s, s)
+    g.destroy()
+  }
+
+  /** Friendly Hard Fork — gold star burst (distinct from every enemy). */
+  private drawPickupHardFork() {
+    const s = 36
+    const c = s / 2
+    const g = this.make.graphics({ x: 0, y: 0 })
+    // Cyan-gold friendly halo
+    g.fillStyle(AA_COLORS.quantum, 0.2)
+    g.fillCircle(c, c, 17)
+    g.lineStyle(2, AA_COLORS.hardFork, 0.85)
+    g.strokeCircle(c, c, 16)
+    // 4-point star
+    g.fillStyle(AA_COLORS.hardFork, 1)
+    g.fillTriangle(c, 4, c - 5, c, c + 5, c)
+    g.fillTriangle(c, s - 4, c - 5, c, c + 5, c)
+    g.fillTriangle(4, c, c, c - 5, c, c + 5)
+    g.fillTriangle(s - 4, c, c, c - 5, c, c + 5)
+    // Center core
+    g.fillStyle(0xffffff, 1)
+    g.fillCircle(c, c, 5)
+    g.fillStyle(AA_COLORS.quantumHot, 1)
+    g.fillCircle(c, c, 3)
+    g.generateTexture('pickup-fork', s, s)
     g.destroy()
   }
 
@@ -554,7 +664,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 22,
-        'WASD / drag  ·  auto-fire  ·  Amendments upgrade  ·  P pause',
+        'Shoot red bugs  ·  grab green+ scroll / gold ★  ·  WASD  ·  P pause'
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -1018,8 +1128,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
 
     const bug = this.bugs.create(x, y, tex) as Phaser.Physics.Arcade.Image
     bug.setDepth(7)
+    // Hostile tint pulse — never looks “friendly gold”
+    bug.setTint(0xffffff)
     const body = bug.body as Phaser.Physics.Arcade.Body
     body.setAllowGravity(false)
+    // Corrupt is larger on field
+    if (kind === 'corrupt') bug.setScale(1.05)
+    else if (kind === 'race') bug.setScale(1.1)
 
     const meta: BugMeta = {
       kind,
@@ -1193,18 +1308,25 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private spawnPickup(x: number, y: number, kind: PickupKind) {
     const key = kind === 'amendment' ? 'pickup-amend' : 'pickup-fork'
     const p = this.pickups.create(x, y, key) as Phaser.Physics.Arcade.Image
-    p.setDepth(8)
+    p.setDepth(12)
     p.setData('kind', kind)
     const body = p.body as Phaser.Physics.Arcade.Body
     body.setAllowGravity(false)
-    body.setVelocity(Phaser.Math.Between(-20, 20), Phaser.Math.Between(-20, 20))
+    body.setVelocity(Phaser.Math.Between(-16, 16), Phaser.Math.Between(-16, 16))
+    // Larger friendly hit-target + bounce pulse
+    p.setScale(1.15)
     this.tweens.add({
       targets: p,
-      scale: { from: 0.85, to: 1.15 },
-      duration: 400,
+      scale: { from: 1.05, to: 1.28 },
+      duration: 420,
       yoyo: true,
       repeat: -1,
     })
+    // Brief label so first-time players read “this is good”
+    const label =
+      kind === 'amendment' ? '+ AMENDMENT' : '★ HARD FORK'
+    const color = kind === 'amendment' ? '#4ade80' : '#f0c14a'
+    floatScoreText(this, x, y - 22, label, color, { fontSize: '13px', rise: 28 })
   }
 
   private onPickup(p: Phaser.Physics.Arcade.Image) {
