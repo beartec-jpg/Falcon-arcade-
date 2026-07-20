@@ -9,9 +9,10 @@ export function HomePage() {
           <span className="section-label">Falcon Arcade · Game Faucet</span>
           <h2 className="hero__title">Play. Score. Claim Falcon.</h2>
           <p className="hero__copy">
-            Four mini-games are live. Scores feed epoch leaderboards and a
-            secondary Game Faucet inside the Falcon Ledger portal — hit 100 in any
-            game and claim when your wallet is connected.
+            Four mini-games are live. Scores feed daily leaderboards and a
+            secondary Game Faucet inside the Falcon Ledger portal — hit{' '}
+            <strong>500</strong> on a single run to unlock a claim (portal caps
+            payouts; keep playing for high scores anytime).
           </p>
         </div>
 
@@ -22,7 +23,7 @@ export function HomePage() {
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Claim threshold</span>
-            <strong>100 pts each</strong>
+            <strong>500 pts / run</strong>
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Modes</span>
@@ -35,9 +36,9 @@ export function HomePage() {
         <span className="section-label">Game lobby</span>
         <h2 className="page-title">Choose your mission.</h2>
         <p className="page-copy">
-          Scores stream to the parent portal via secure postMessage. Reach each
-          game&apos;s reward threshold to become eligible for the Game Faucet
-          claim (once per game per epoch).
+          Each run starts from zero — only your best single run of the day
+          counts for claims and the leaderboard. Expect a few attempts before
+          you clear 500; after you claim, keep grinding high scores.
         </p>
 
         <div className="games-grid">

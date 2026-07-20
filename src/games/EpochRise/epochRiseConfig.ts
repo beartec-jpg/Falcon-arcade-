@@ -2,8 +2,8 @@
 
 export const EPOCH_RISE_SLUG = 'epoch-rise'
 
-/** Score required to enable the Game Faucet claim for this game. */
-export const EPOCH_RISE_REWARD_THRESHOLD = 100
+/** Score required to enable the Game Faucet claim for this game (best single run). */
+export const EPOCH_RISE_REWARD_THRESHOLD = 500
 
 export const EPOCH_COLORS = {
   bg: 0x020617,
@@ -48,12 +48,12 @@ export const EPOCH_RISE = {
   ledgerHitDrain: 18,
   interferenceDrainPerSecond: 14,
   orbEnergy: 14,
-  orbScore: 10,
+  orbScore: 8,
   clusterOrbEnergy: 8,
-  clusterOrbScore: 14,
-  heightPointsPerSecond: 6,
+  clusterOrbScore: 10,
+  heightPointsPerSecond: 4,
   efficiencyBonusThreshold: 70,
-  efficiencyPointsPerSecond: 2,
+  efficiencyPointsPerSecond: 1.5,
   shieldDurationMs: 3200,
   boostZoneDurationMs: 2200,
   spawnMaxMs: 1300,

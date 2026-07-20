@@ -2,8 +2,8 @@
 
 export const FALCON_FLIGHT_SLUG = 'falcon-flight'
 
-/** Score required to enable the Game Faucet claim for this game. */
-export const FALCON_FLIGHT_REWARD_THRESHOLD = 100
+/** Score required to enable the Game Faucet claim for this game (best single run). */
+export const FALCON_FLIGHT_REWARD_THRESHOLD = 500
 
 export const FALCON_COLORS = {
   bg: 0x020617,
@@ -41,9 +41,9 @@ export const FALCON_FLIGHT = {
   spawnMaxMs: 2100,
   spawnMinMs: 1150,
   /** Distance score: points per second of survival at base speed (scaled by speed). */
-  distancePointsPerSecond: 8,
+  distancePointsPerSecond: 5,
   /** Bonus when the player fully clears a gap. */
-  gapPassBonus: 18,
+  gapPassBonus: 12,
   /** How quickly difficulty ramps (0–1 over this many seconds). */
   difficultyRampSeconds: 90,
 } as const

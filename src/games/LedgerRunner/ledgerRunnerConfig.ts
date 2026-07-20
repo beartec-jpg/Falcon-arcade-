@@ -2,8 +2,8 @@
 
 export const LEDGER_RUNNER_SLUG = 'ledger-runner'
 
-/** Score required to enable the Game Faucet claim for this game. */
-export const LEDGER_RUNNER_REWARD_THRESHOLD = 100
+/** Score required to enable the Game Faucet claim for this game (best single run). */
+export const LEDGER_RUNNER_REWARD_THRESHOLD = 500
 
 export const RUNNER_COLORS = {
   bg: 0x020617,
@@ -44,10 +44,10 @@ export const LEDGER_RUNNER = {
   maxScrollSpeed: 520,
   spawnMaxMs: 1800,
   spawnMinMs: 900,
-  distancePointsPerSecond: 10,
-  clearBonus: 12,
-  perfectBonus: 8,
-  comboStepBonus: 4,
+  distancePointsPerSecond: 6,
+  clearBonus: 10,
+  perfectBonus: 6,
+  comboStepBonus: 3,
   maxCombo: 12,
   difficultyRampSeconds: 75,
 } as const

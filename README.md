@@ -70,19 +70,20 @@ src/
 
 ## Games
 
-1. **Falcon Flight** ✅ (horizontal) — auto-forward flight; steer up/down through ledger gaps and quantum static. Distance + gap-pass scoring, progressive difficulty, claim unlock at **100** points.
-2. **Ledger Runner** ✅ (horizontal) — auto-runner with jump, double-jump, and slide. Quantum spikes, bad-ledger barriers, floaters, combo clears. Claim unlock at **100** points.
-3. **Epoch Rise** ✅ (vertical) — energy-bar ascent; left/right + dash, orbs restore energy, ledgers/interference drain it, shields and boost zones. Claim unlock at **100** points.
-4. **Amendment Apocalypse** ✅ (arena) — free-roam shooter; six Amendment weapon tiers, Consensus Shield, Null/Race/Loop/Corrupt bugs, Hard Fork wipes. Claim unlock at **100** points.
+1. **Falcon Flight** ✅ (horizontal) — auto-forward flight; steer up/down through ledger gaps and quantum static. Distance + gap-pass scoring, progressive difficulty, claim unlock at **500** points (single run).
+2. **Ledger Runner** ✅ (horizontal) — auto-runner with jump, double-jump, and slide. Quantum spikes, bad-ledger barriers, floaters, combo clears. Claim unlock at **500** points (single run).
+3. **Epoch Rise** ✅ (vertical) — energy-bar ascent; left/right + dash, orbs restore energy, ledgers/interference drain it, shields and boost zones. Claim unlock at **500** points (single run).
+4. **Amendment Apocalypse** ✅ (arena) — free-roam shooter; six Amendment weapon tiers, Consensus Shield, Null/Race/Loop/Corrupt bugs, Hard Fork wipes. Claim unlock at **500** points (single run).
 
 ## Game → reward model (portal)
 
-- Each game has an epoch leaderboard (resets every epoch).
-- Each game has a **reward threshold**; reaching it makes the player eligible to claim the Game Faucet reward **once per game per epoch**.
+- Leaderboard is **best single-run score per wallet per game per UTC day** (not a sum across runs). Each run starts at 0.
+- Claim unlock requires **500+ on one run** (portal `GAME_FAUCET_MIN_SCORE`, default 500).
+- Payout caps (portal defaults): **8 game claims total per day**, **8 per game** — any mix (e.g. 2 on each game, or all 8 on one). Playing for high scores is unlimited.
 - Score may keep climbing after the threshold for leaderboard ranking only.
-- Daily/epoch claim limits protect the faucet balance (enforced by the parent portal / backend).
+- On-chain claim settlement remains the parent portal’s responsibility.
 
-Each playable game implements live scoring, a **100-point claim threshold**, and portal message hooks. On-chain claim settlement remains the parent portal’s responsibility.
+Each playable game implements live scoring, a **500-point claim threshold**, and portal message hooks.
 
 ## Parent portal integration (`postMessage`)
 

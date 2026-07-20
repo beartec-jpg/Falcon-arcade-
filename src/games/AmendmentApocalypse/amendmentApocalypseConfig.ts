@@ -1,7 +1,8 @@
 /** Amendment Apocalypse — rogue-code arena shooter. */
 
 export const AMENDMENT_SLUG = 'amendment-apocalypse'
-export const AMENDMENT_REWARD_THRESHOLD = 100
+/** Best single-run score required for Game Faucet claim. */
+export const AMENDMENT_REWARD_THRESHOLD = 500
 
 export const AA_COLORS = {
   bg: 0x020617,
@@ -53,13 +54,13 @@ export const AA = {
   amendDropBase: 0.07,
   amendDropCorrupt: 0.22,
   hardForkDropBase: 0.015,
-  /** Scoring */
-  survivalPtsPerSec: 4,
-  killBase: 8,
+  /** Scoring — tuned so claim (~500) needs a real run, not a few seconds */
+  survivalPtsPerSec: 3,
+  killBase: 6,
   comboWindowMs: 1400,
   comboStep: 0.25,
   maxComboMult: 4,
-  tierHoldBonusPerSec: 1.5,
+  tierHoldBonusPerSec: 1,
   hardForkFireBoostMs: 3500,
   hardForkFireMult: 0.55,
 } as const
