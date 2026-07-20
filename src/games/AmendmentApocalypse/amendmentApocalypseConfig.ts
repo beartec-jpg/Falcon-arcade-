@@ -43,17 +43,24 @@ export const AA = {
   shieldMs: 2000,
   maxWeaponTier: 6,
   /** Spawning — ramps harder over time and harder still at high weapon tier */
-  spawnMaxMs: 1400,
-  spawnMinMs: 420,
-  difficultyRampSeconds: 70,
+  spawnMaxMs: 1500,
+  spawnMinMs: 520,
+  difficultyRampSeconds: 90,
   /** Extra spawn pressure when weapon is strong (tier 1..6 → 0..1) */
-  highTierSpawnMult: 0.55,
+  highTierSpawnMult: 0.35,
   /** Max Amendments + Hard Forks allowed on the field at once */
-  maxPickupsOnField: 2,
-  /** Drop rates (corrupt is higher; both fall as tier rises) */
-  amendDropBase: 0.07,
-  amendDropCorrupt: 0.22,
-  hardForkDropBase: 0.015,
+  maxPickupsOnField: 4,
+  /**
+   * Drop rates — early tiers need frequent upgrades; scarcity only bites late.
+   * Base ~1 in 5 kills, corrupt ~2 in 5.
+   */
+  amendDropBase: 0.2,
+  amendDropCorrupt: 0.42,
+  hardForkDropBase: 0.04,
+  /** Guarantee an Amendment after this many kills while under tier 4 */
+  pityKillsUnderTier4: 5,
+  /** Guarantee an Amendment after this many kills at tier 4–5 */
+  pityKillsMidTier: 9,
   /** Scoring — tuned so claim (~500) needs a real run, not a few seconds */
   survivalPtsPerSec: 3,
   killBase: 6,

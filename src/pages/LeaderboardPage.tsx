@@ -79,7 +79,7 @@ export function LeaderboardPage() {
             }
             onClick={() => setGame(g.slug)}
           >
-            {g.name}
+            {g.mode}
           </button>
         ))}
       </div>

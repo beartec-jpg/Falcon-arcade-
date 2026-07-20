@@ -3,13 +3,14 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { isInIframe } from '../utils/iframe'
 import { WalletConnectButton } from './WalletConnectButton'
 
+/** Short category names (not full titles) — Flight · Run · Rise · Shoot */
 const navigationItems = [
   { label: 'Home', to: '/' },
   { label: 'Board', to: '/leaderboard' },
   { label: 'Flight', to: '/falcon-flight' },
-  { label: 'Runner', to: '/ledger-runner' },
+  { label: 'Run', to: '/ledger-runner' },
   { label: 'Rise', to: '/epoch-rise' },
-  { label: 'Amend', to: '/amendment-apocalypse' },
+  { label: 'Shoot', to: '/amendment-apocalypse' },
 ]
 
 const GAME_PREFIXES = [

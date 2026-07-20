@@ -4,8 +4,9 @@ export const gameDefinitions: GameDefinition[] = [
   {
     slug: 'falcon-flight',
     name: 'Falcon Flight',
+    mode: 'Flight',
     route: '/falcon-flight',
-    tagline: 'Horizontal flight',
+    tagline: 'Flight · horizontal',
     description:
       'Auto-scroll dodge game. Steer up and down through ledger gaps, rack up distance, and unlock the Game Faucet at 500 points on a single run.',
     longDescription:
@@ -16,20 +17,22 @@ export const gameDefinitions: GameDefinition[] = [
   {
     slug: 'ledger-runner',
     name: 'Ledger Runner',
+    mode: 'Run',
     route: '/ledger-runner',
-    tagline: 'Auto-runner',
+    tagline: 'Run · auto-runner',
     description:
       'Jump quantum spikes, slide under bad ledgers, chain combos. Distance scoring with progressive speed — claim at 500 points on a single run.',
     longDescription:
       'Ledger Runner is a horizontal auto-runner. You sprint forward automatically and only jump (with a double-jump) or slide. Clear quantum spikes, duck bad-ledger barriers, and time floaters. Combos reward clean consecutive clears. Best single-run score of the day unlocks the claim; keep playing for the leaderboard.',
-    scoreLabel: 'Runner score',
+    scoreLabel: 'Run score',
     rewardLabel: 'Claim at 500 pts',
   },
   {
     slug: 'epoch-rise',
     name: 'Epoch Rise',
+    mode: 'Rise',
     route: '/epoch-rise',
-    tagline: 'Vertical energy run',
+    tagline: 'Rise · vertical energy',
     description:
       'Start at the bottom and fly freely in 2D. Climb for fast orbs, drop back for distant ones — manage energy, claim at 500 on a single run.',
     longDescription:
@@ -40,13 +43,14 @@ export const gameDefinitions: GameDefinition[] = [
   {
     slug: 'amendment-apocalypse',
     name: 'Amendment Apocalypse',
+    mode: 'Shoot',
     route: '/amendment-apocalypse',
-    tagline: 'Ledger defense',
+    tagline: 'Shoot · ledger defense',
     description:
-      'Free-roam arena shooter. Collect Amendments to escalate firepower, smash code bugs, and hold consensus — claim at 500 points on a single run.',
+      'Free-roam arena shooter. Grab upgrade scrolls to escalate firepower, smash code bugs, and hold consensus — claim at 500 points on a single run.',
     longDescription:
-      'Amendment Apocalypse is an Asteroids-style defense of the ledger. Your ship flies freely with momentum while weapons auto-fire through six Amendment tiers. Collect Amendments to upgrade and gain a Consensus Shield; take two hits without recovery and consensus breaks. Hunt Null, Race, Loop, and Corrupt bugs — rare Hard Forks clear the screen.',
-    scoreLabel: 'Defense score',
+      'Amendment Apocalypse (Shoot mode) is an Asteroids-style defense of the ledger. Your ship flies freely with momentum while weapons auto-fire through six weapon tiers. Collect green+ upgrade scrolls and gold Hard Forks; take two hits without recovery and consensus breaks. Hunt Null, Race, Loop, and Corrupt bugs.',
+    scoreLabel: 'Shoot score',
     rewardLabel: 'Claim at 500 pts',
   },
 ]

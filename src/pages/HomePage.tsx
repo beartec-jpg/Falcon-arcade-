@@ -27,7 +27,7 @@ export function HomePage() {
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Modes</span>
-            <strong>Flight · Run · Rise · Amend</strong>
+            <strong>Flight · Run · Rise · Shoot</strong>
           </div>
         </div>
       </section>

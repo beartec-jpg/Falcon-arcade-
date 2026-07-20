@@ -72,6 +72,8 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private comboMult = 1
   private survivalAcc = 0
   private streamScroll = 0
+  /** Kills since last Amendment drop (pity timer for upgrades). */
+  private killsSincePickup = 0
 
   private ship!: Phaser.Physics.Arcade.Image
   private shipVisual!: Phaser.GameObjects.Container
@@ -189,8 +191,8 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
         [
           'WASD / drag to fly. Auto-fire weapons.',
           'ENEMIES: red-marked bugs (drone, missile, spiked ring, ERROR block).',
-          'POWERUPS: gold scroll with green + (Amendment) · gold star (Hard Fork).',
-          '2 hits without an Amendment → Consensus Broken. Claim at 100.',
+          'POWERUPS: gold scroll with green + (upgrade) · gold star (Hard Fork).',
+          '2 hits without an upgrade → Consensus Broken. Claim at 500.',
         ],
         () => {
           markHowToSeen(AMENDMENT_SLUG)
@@ -655,7 +657,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       .setDepth(41)
 
     this.hudTier = this.add
-      .text(22, 42, 'AMENDMENT TIER  1/6', {
+      .text(22, 42, 'WEAPON TIER  1/6', {
         fontFamily: 'Inter, system-ui, sans-serif',
         fontSize: '12px',
         color: '#d4922a',
@@ -831,6 +833,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.combo = 0
     this.comboMult = 1
     this.survivalAcc = 0
+    this.killsSincePickup = 0
     stopTrail(this.trail)
 
     this.bullets.clear(true, true)
@@ -845,7 +848,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.rebuildShipParts(this.shipVisual, 1)
     this.hudScore.setText('SCORE  0')
     this.hudScore.setColor('#f1f5f9')
-    this.hudTier.setText('AMENDMENT TIER  1/6')
+    this.hudTier.setText('WEAPON TIER  1/6')
     this.hudCombo.setText('')
     this.emitScore(0)
     this.emitTier()
@@ -856,7 +859,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.state = 'playing'
     this.hideOverlay()
     this.nextSpawnAt = this.time.now + 600
-    this.hudHint.setText('Collect Amendments · dodge bugs · hold high tiers')
+    this.hudHint.setText('Grab green+ upgrades · dodge bugs · climb tiers')
     startTrail(this.trail, this.ship)
     this.emitState('playing')
   }
@@ -1321,36 +1324,50 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       meta.kind === 'corrupt' ? '#f472b6' : '#d4922a',
     )
 
-    // Drops — rarer overall, much rarer when already powered up
+    // Drops — generous early, only scarce once well upgraded
     this.maybeDropPickup(bug.x, bug.y, meta.kind)
   }
 
   private maybeDropPickup(x: number, y: number, kind: BugKind) {
+    this.killsSincePickup += 1
+
     const onField = this.pickups.countActive(true)
     if (onField >= AA.maxPickupsOnField) return
 
-    // At tier 6, suppress almost everything; at low tier, allow a few
+    // Mild scarcity only at high tiers (tier 1–3 ≈ full rates)
     const tierHeat = (this.weaponTier - 1) / Math.max(1, AA.maxWeaponTier - 1)
-    const scarcity = 1 - tierHeat * 0.85 // tier 6 → ~0.15 of base rates
+    const scarcity = 1 - tierHeat * 0.45 // tier 6 → ~0.55 of base rates
 
     let amendChance =
       (kind === 'corrupt' ? AA.amendDropCorrupt : AA.amendDropBase) * scarcity
-    // No Amendments needed if already maxed — only rare hard forks for clear
+    // Max tier: almost no more upgrades, keep rare forks for clear
     if (this.weaponTier >= AA.maxWeaponTier) {
-      amendChance *= 0.08
+      amendChance *= 0.12
     } else if (this.weaponTier >= 5) {
-      amendChance *= 0.35
-    } else if (this.weaponTier >= 4) {
-      amendChance *= 0.55
+      amendChance *= 0.7
+    }
+
+    // Pity: guarantee an upgrade after a short dry streak while climbing
+    if (this.weaponTier < AA.maxWeaponTier) {
+      const pity =
+        this.weaponTier < 4
+          ? AA.pityKillsUnderTier4
+          : AA.pityKillsMidTier
+      if (this.killsSincePickup >= pity) {
+        this.killsSincePickup = 0
+        this.spawnPickup(x, y, 'amendment')
+        return
+      }
     }
 
     if (Math.random() < amendChance) {
+      this.killsSincePickup = 0
       this.spawnPickup(x, y, 'amendment')
       return
     }
 
     let forkChance = AA.hardForkDropBase * scarcity
-    if (this.weaponTier >= 5) forkChance *= 0.5
+    if (this.weaponTier >= 5) forkChance *= 0.75
     if (Math.random() < forkChance) {
       this.spawnPickup(x, y, 'hardfork')
     }
@@ -1365,7 +1382,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.hitsWithoutAmendment += 1
     this.weaponTier = Math.max(1, this.weaponTier - 1)
     this.rebuildShipParts(this.shipVisual, this.weaponTier)
-    this.hudTier.setText(`AMENDMENT TIER  ${this.weaponTier}/6`)
+    this.hudTier.setText(`WEAPON TIER  ${this.weaponTier}/6`)
     this.emitTier()
 
     this.cameras.main.shake(140, 0.01)
@@ -1410,7 +1427,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     })
     // Brief label so first-time players read “this is good”
     const label =
-      kind === 'amendment' ? '+ AMENDMENT' : '★ HARD FORK'
+      kind === 'amendment' ? '+ UPGRADE' : '★ HARD FORK'
     const color = kind === 'amendment' ? '#4ade80' : '#f0c14a'
     floatScoreText(this, x, y - 22, label, color, { fontSize: '13px', rise: 28 })
   }
@@ -1431,9 +1448,10 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     const prev = this.weaponTier
     this.weaponTier = Math.min(AA.maxWeaponTier, this.weaponTier + 1)
     this.hitsWithoutAmendment = 0
+    this.killsSincePickup = 0
     this.shieldUntil = this.time.now + AA.shieldMs
     this.rebuildShipParts(this.shipVisual, this.weaponTier)
-    this.hudTier.setText(`AMENDMENT TIER  ${this.weaponTier}/6`)
+    this.hudTier.setText(`WEAPON TIER  ${this.weaponTier}/6`)
     this.emitTier()
 
     flashCleanPass(this)
