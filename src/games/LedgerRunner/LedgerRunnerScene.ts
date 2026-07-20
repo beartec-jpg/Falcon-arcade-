@@ -893,6 +893,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
       onGround: this.onGround && this.state === 'playing',
       sliding: this.isSliding,
       runBob: this.runBob,
+      vy: this.player.body?.velocity.y ?? 0,
+      speedFactor:
+        this.state === 'playing'
+          ? this.scrollSpeed / LEDGER_RUNNER.baseScrollSpeed
+          : 0.9,
     })
   }
 

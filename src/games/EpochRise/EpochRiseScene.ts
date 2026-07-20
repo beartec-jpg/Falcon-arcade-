@@ -880,8 +880,9 @@ export class EpochRiseScene extends Phaser.Scene {
 
     this.wingFlap += delta * (this.state === 'playing' ? 1.45 : 0.75)
     const vx = this.falcon.body?.velocity.x ?? 0
+    const vy = this.falcon.body?.velocity.y ?? 0
     const bank =
-      this.state === 'playing' ? Phaser.Math.Clamp(vx / 18, -22, 22) : 0
+      this.state === 'playing' ? Phaser.Math.Clamp(vx / 16, -24, 24) : 0
 
     let mood: CharacterMood = 'idle'
     if (this.state === 'gameover') mood = 'dead'
@@ -896,7 +897,15 @@ export class EpochRiseScene extends Phaser.Scene {
       else mood = 'play'
     }
 
-    animateRiseEmblem(this.riseEmblem, delta, this.wingFlap, mood, bank)
+    animateRiseEmblem(this.riseEmblem, delta, this.wingFlap, mood, bank, {
+      vx,
+      vy,
+      energyRatio: this.energy / EPOCH_RISE.maxEnergy,
+      speedFactor:
+        this.state === 'playing'
+          ? this.riseSpeed / EPOCH_RISE.baseRiseSpeed
+          : 0.85,
+    })
   }
 
   // ── energy & score ─────────────────────────────────────
