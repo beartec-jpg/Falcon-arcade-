@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { isInIframe } from '../utils/iframe'
 import { WalletConnectButton } from './WalletConnectButton'
 
 const navigationItems = [
@@ -11,9 +12,20 @@ const navigationItems = [
   { label: 'Amend', to: '/amendment-apocalypse' },
 ]
 
+const GAME_PREFIXES = [
+  '/falcon-flight',
+  '/ledger-runner',
+  '/epoch-rise',
+  '/amendment-apocalypse',
+]
+
 export function AppLayout() {
   const [navOpen, setNavOpen] = useState(false)
   const location = useLocation()
+  const onGameRoute = GAME_PREFIXES.some((p) =>
+    location.pathname.startsWith(p),
+  )
+  const embedded = isInIframe()
 
   // Close the mobile drawer on navigation
   useEffect(() => {
@@ -30,8 +42,17 @@ export function AppLayout() {
     }
   }, [navOpen])
 
+  const shellClass = [
+    'app-shell',
+    navOpen ? 'app-shell--nav-open' : '',
+    onGameRoute ? 'app-shell--game' : '',
+    embedded ? 'app-shell--embedded' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className={`app-shell${navOpen ? ' app-shell--nav-open' : ''}`}>
+    <div className={shellClass}>
       <header className="app-header">
         <div className="app-header__inner">
           <div className="app-header__row">

@@ -100,6 +100,21 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+/*
+ * Game pages / portal embed: do not pin the site header over the canvas.
+ * Sticky chrome + tall game hosts made it feel “stuck” and required a hard
+ * flick to scroll the playfield free.
+ */
+.app-shell--game .app-header,
+.app-shell--embedded .app-header {
+  position: relative;
+  top: auto;
+}
+
+.app-shell--embedded .app-main {
+  padding-top: 0.75rem;
+}
+
 .app-header__inner,
 .app-main {
   width: min(1180px, calc(100% - 1.25rem));
