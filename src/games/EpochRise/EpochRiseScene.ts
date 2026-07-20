@@ -57,8 +57,8 @@ type EntityMeta = {
 }
 
 /**
- * Epoch Rise — vertical energy scroller.
- * Falcon rises continuously; steer left/right, manage energy, collect orbs.
+ * Epoch Rise — vertical energy run.
+ * Falcon starts at the bottom; free 2D flight while the world scrolls past.
  */
 export class EpochRiseScene extends Phaser.Scene {
   private state: EpochRiseGameState = 'ready'
@@ -82,7 +82,6 @@ export class EpochRiseScene extends Phaser.Scene {
   private shieldUntil = 0
   private boostZoneUntil = 0
   private dashUntil = 0
-  private dashDir = 0
   private invulnUntil = 0
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -93,9 +92,13 @@ export class EpochRiseScene extends Phaser.Scene {
   private keySpace!: Phaser.Input.Keyboard.Key
   private keyShift!: Phaser.Input.Keyboard.Key
   private keyW!: Phaser.Input.Keyboard.Key
+  private keyS!: Phaser.Input.Keyboard.Key
   private keyP!: Phaser.Input.Keyboard.Key
 
-  private pointerDir = 0
+  /** Pointer drag target (world) while held; null when not steering by touch. */
+  private pointerAim: { x: number; y: number } | null = null
+  private dashDirX = 0
+  private dashDirY = 0
 
   private starLayers: StarLayer[] = []
   private nebula!: NebulaBackdrop
@@ -142,14 +145,11 @@ export class EpochRiseScene extends Phaser.Scene {
       immovable: true,
     })
 
+    const startY = this.defaultPlayerY()
     this.trail = createPlayerTrail(this, 9)
-    this.riseEmblem = createRiseEmblem(this, width / 2, EPOCH_RISE.playerY, 13)
+    this.riseEmblem = createRiseEmblem(this, width / 2, startY, 13)
     this.falconVisual = this.riseEmblem.root
-    this.falcon = this.physics.add.image(
-      width / 2,
-      EPOCH_RISE.playerY,
-      'falcon-hitbox',
-    )
+    this.falcon = this.physics.add.image(width / 2, startY, 'falcon-hitbox')
     this.falcon.setVisible(false)
     this.falcon.setCircle(EPOCH_RISE.playerRadius)
     this.falcon.setCollideWorldBounds(true)
@@ -164,7 +164,10 @@ export class EpochRiseScene extends Phaser.Scene {
       this,
     )
 
+    // Soft edge hints only — free 2D flight uses drag / WASD
     this.touchUi = createTouchAffordances(this, 'horizontal')
+    this.touchUi.labelA.setText('DRAG')
+    this.touchUi.labelB.setText('TO FLY')
     this.setupInput()
     this.createHud(width, height)
     this.createParticles()
@@ -177,10 +180,10 @@ export class EpochRiseScene extends Phaser.Scene {
         this,
         'Epoch Rise',
         [
-          'Rise automatically — keep your energy alive.',
-          'Steer ←→ / A D or hold left / right half.',
-          'Collect orbs, dodge ledgers. Dash with Space (costs energy).',
-          `Claim unlocks at ${EPOCH_RISE_REWARD_THRESHOLD} points.`,
+          'Start at the bottom — the world rises past you.',
+          'Move freely: WASD / arrows, or drag toward orbs.',
+          'Go up for faster grabs · drop back for distant orbs.',
+          'Dash (Space) bursts in your move direction. Keep energy alive.',
         ],
         () => {
           markHowToSeen(EPOCH_RISE_SLUG)
@@ -270,7 +273,7 @@ export class EpochRiseScene extends Phaser.Scene {
     }
     this.riseSpeed = rise
 
-    this.applyLateralMovement()
+    this.applyMovement()
     this.applyPassiveEnergyDrain(delta)
     this.advanceHeightScore(delta)
     this.spawnEntitiesIfNeeded()
@@ -411,11 +414,16 @@ export class EpochRiseScene extends Phaser.Scene {
     this.laneGfx.lineBetween(width - 36, 0, width - 36, height)
   }
 
+  private defaultPlayerY() {
+    return this.scale.height * EPOCH_RISE.playerYRatio
+  }
+
   private setupInput() {
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys()
       this.keyA = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A)
       this.keyD = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
+      this.keyS = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S)
       this.keyLeft = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT)
       this.keyRight = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT)
       this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
@@ -438,23 +446,21 @@ export class EpochRiseScene extends Phaser.Scene {
 
       if (!this.zonesFaded) {
         this.zonesFaded = true
-        this.time.delayedCall(1400, () => this.touchUi.setActive(false))
+        this.time.delayedCall(1200, () => this.touchUi.setActive(false))
       }
 
-      const mid = this.scale.width / 2
-      this.pointerDir = pointer.x < mid ? -1 : 1
-      this.touchUi.pulse(this.pointerDir < 0 ? 'a' : 'b')
-      // Upper third = dash
-      if (pointer.y < this.scale.height * 0.28) {
-        this.tryDash(this.pointerDir)
+      this.pointerAim = { x: pointer.x, y: pointer.y }
+      // Double-tap top edge = dash in current aim
+      if (pointer.y < this.scale.height * 0.12) {
+        this.tryDash()
       }
     })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown || this.state !== 'playing' || this.paused) return
-      this.pointerDir = pointer.x < this.scale.width / 2 ? -1 : 1
+      this.pointerAim = { x: pointer.x, y: pointer.y }
     })
     this.input.on('pointerup', () => {
-      this.pointerDir = 0
+      this.pointerAim = null
     })
   }
 
@@ -527,7 +533,7 @@ export class EpochRiseScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 24,
-        '← → steer  ·  SPACE dash  ·  P pause  ·  collect orbs',
+        'WASD free move  ·  drag to fly  ·  SPACE dash  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -698,7 +704,8 @@ export class EpochRiseScene extends Phaser.Scene {
     stopTrail(this.trail)
 
     this.entities.clear(true, true)
-    this.falcon.setPosition(this.scale.width / 2, EPOCH_RISE.playerY)
+    this.pointerAim = null
+    this.falcon.setPosition(this.scale.width / 2, this.defaultPlayerY())
     this.falcon.setVelocity(0, 0)
     this.falconVisual.setAlpha(1)
     this.falconVisual.setAngle(0)
@@ -714,8 +721,12 @@ export class EpochRiseScene extends Phaser.Scene {
     if (this.waitingHowTo) return
     this.state = 'playing'
     this.hideOverlay()
+    // Lock start to bottom of the playfield so runs always open low
+    this.falcon.setPosition(this.scale.width / 2, this.defaultPlayerY())
+    this.falcon.setVelocity(0, 0)
+    this.pointerAim = null
     this.nextSpawnAt = this.time.now + 600
-    this.hudHint.setText('Hold energy · snag orbs · dash gaps · P pause')
+    this.hudHint.setText('Fly free · up for speed grabs · drop back for far orbs')
     startTrail(this.trail, this.falcon)
     this.emitState('playing')
   }
@@ -752,64 +763,96 @@ export class EpochRiseScene extends Phaser.Scene {
 
   // ── movement ───────────────────────────────────────────
 
-  private lateralIntent(): number {
-    let dir = 0
-    if (
-      this.cursors?.left.isDown ||
-      this.keyA?.isDown ||
-      this.keyLeft?.isDown
-    ) {
-      dir -= 1
+  /** Keyboard + drag intent in unit vector space. */
+  private moveIntent(): { x: number; y: number } {
+    let x = 0
+    let y = 0
+    if (this.cursors?.left.isDown || this.keyA?.isDown || this.keyLeft?.isDown) {
+      x -= 1
     }
     if (
       this.cursors?.right.isDown ||
       this.keyD?.isDown ||
       this.keyRight?.isDown
     ) {
-      dir += 1
+      x += 1
     }
-    if (this.pointerDir !== 0) dir = this.pointerDir
-    return Phaser.Math.Clamp(dir, -1, 1)
+    if (this.cursors?.up.isDown || this.keyW?.isDown) {
+      y -= 1
+    }
+    if (this.cursors?.down.isDown || this.keyS?.isDown) {
+      y += 1
+    }
+
+    // Drag toward pointer for free 2D mobile control
+    if (this.pointerAim && this.state === 'playing') {
+      const dx = this.pointerAim.x - this.falcon.x
+      const dy = this.pointerAim.y - this.falcon.y
+      const len = Math.hypot(dx, dy)
+      if (len > 14) {
+        x = dx / len
+        y = dy / len
+      }
+    }
+
+    const len = Math.hypot(x, y)
+    if (len > 1) {
+      x /= len
+      y /= len
+    }
+    return { x, y }
   }
 
-  private applyLateralMovement() {
+  private applyMovement() {
     if (this.state === 'playing') {
       const dashPressed =
         (this.keySpace && Phaser.Input.Keyboard.JustDown(this.keySpace)) ||
-        (this.keyShift && Phaser.Input.Keyboard.JustDown(this.keyShift)) ||
-        (this.keyW && Phaser.Input.Keyboard.JustDown(this.keyW))
+        (this.keyShift && Phaser.Input.Keyboard.JustDown(this.keyShift))
 
       if (dashPressed) {
-        const dir = this.lateralIntent()
-        this.tryDash(dir === 0 ? 1 : dir)
+        this.tryDash()
       }
     }
 
     const dashing = this.time.now < this.dashUntil
-    const speed = dashing ? EPOCH_RISE.boostSpeed : EPOCH_RISE.lateralSpeed
-    const intent = dashing ? this.dashDir : this.lateralIntent()
+    const speed = dashing ? EPOCH_RISE.boostSpeed : EPOCH_RISE.moveSpeed
+    const intent = this.moveIntent()
 
-    this.falcon.setVelocityX(intent * speed)
-    this.falcon.y = EPOCH_RISE.playerY
-    this.falcon.setVelocityY(0)
+    if (dashing) {
+      this.falcon.setVelocity(
+        this.dashDirX * speed,
+        this.dashDirY * speed,
+      )
+    } else {
+      this.falcon.setVelocity(intent.x * speed, intent.y * speed)
+    }
 
-    // Soft side padding
-    const pad = 48
-    if (this.falcon.x < pad) {
-      this.falcon.x = pad
-    }
-    if (this.falcon.x > this.scale.width - pad) {
-      this.falcon.x = this.scale.width - pad
-    }
+    // Soft playfield clamps (keep ship bottom-biased but free to climb)
+    const { width, height } = this.scale
+    const padX = 48
+    const top = height * EPOCH_RISE.playTopRatio
+    const bottom = height * EPOCH_RISE.playBottomRatio
+    this.falcon.x = Phaser.Math.Clamp(this.falcon.x, padX, width - padX)
+    this.falcon.y = Phaser.Math.Clamp(this.falcon.y, top, bottom)
   }
 
-  private tryDash(dir: number) {
+  private tryDash() {
     if (this.state !== 'playing') return
     if (this.time.now < this.dashUntil) return
     if (this.energy < EPOCH_RISE.boostEnergyCost) return
 
+    const intent = this.moveIntent()
+    // Default dash upward-forward (rise) if idle
+    let dx = intent.x
+    let dy = intent.y
+    if (Math.hypot(dx, dy) < 0.15) {
+      dx = 0
+      dy = -1
+    }
+    const len = Math.hypot(dx, dy) || 1
     this.changeEnergy(-EPOCH_RISE.boostEnergyCost)
-    this.dashDir = dir === 0 ? 1 : dir
+    this.dashDirX = dx / len
+    this.dashDirY = dy / len
     this.dashUntil = this.time.now + EPOCH_RISE.boostDurationMs
     this.floatText(this.falcon.x, this.falcon.y - 30, 'DASH', '#d4922a')
   }
@@ -822,8 +865,10 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private idleHover(delta: number) {
     this.wingFlap += delta
-    const bob = Math.sin(this.wingFlap / 280) * 6
-    this.falcon.y = EPOCH_RISE.playerY + bob
+    const bob = Math.sin(this.wingFlap / 280) * 5
+    const baseY = this.defaultPlayerY()
+    this.falcon.x = this.scale.width / 2
+    this.falcon.y = baseY + bob
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
   }
@@ -836,7 +881,7 @@ export class EpochRiseScene extends Phaser.Scene {
     this.wingFlap += delta * (this.state === 'playing' ? 1.45 : 0.75)
     const vx = this.falcon.body?.velocity.x ?? 0
     const bank =
-      this.state === 'playing' ? Phaser.Math.Clamp(vx / 18, -20, 20) : 0
+      this.state === 'playing' ? Phaser.Math.Clamp(vx / 18, -22, 22) : 0
 
     let mood: CharacterMood = 'idle'
     if (this.state === 'gameover') mood = 'dead'

@@ -31,11 +31,19 @@ export const EPOCH_COLORS = {
 export const EPOCH_RISE = {
   width: 960,
   height: 540,
-  /** Falcon stays near mid-lower screen; world scrolls down (rise illusion). */
-  playerY: 360,
+  designHeight: 540,
+  /**
+   * Default Y as fraction of playfield height (0 = top, 1 = bottom).
+   * Ship starts near the bottom edge and can climb freely in 2D.
+   */
+  playerYRatio: 0.9,
+  /** Soft clamps as fractions of height (playable band). */
+  playTopRatio: 0.1,
+  playBottomRatio: 0.94,
   playerRadius: 16,
-  lateralSpeed: 340,
-  boostSpeed: 520,
+  /** Free 2D move speed (WASD / arrows / drag). */
+  moveSpeed: 360,
+  boostSpeed: 540,
   boostDurationMs: 280,
   boostEnergyCost: 6,
   /** World scroll speed (px/s) — higher = faster rise. */

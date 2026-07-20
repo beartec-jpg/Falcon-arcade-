@@ -64,10 +64,10 @@ export function EpochRisePage() {
 
   const statusBody =
     gameState === 'playing'
-      ? `Energy ${energyPct}%. Steer ←→ / A D, dash with Space/Shift. Orbs restore energy; bad ledgers and interference drain it.`
+      ? `Energy ${energyPct}%. Fly freely (WASD / drag): climb for faster grabs, drop back for distant orbs. Space dashes in your move direction.`
       : gameState === 'gameover'
         ? `Final score ${score}. Reach ${EPOCH_RISE_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
-        : `Vertical energy scroller — rise through hazards, collect quantum orbs, grab shields and boost zones. Claim unlocks at ${EPOCH_RISE_REWARD_THRESHOLD} points.`
+        : `Start at the bottom of the rise. Free 2D flight — up/down/left/right — for orbs and hazards. Claim unlocks at ${EPOCH_RISE_REWARD_THRESHOLD} points.`
 
   return (
     <GamePageShell

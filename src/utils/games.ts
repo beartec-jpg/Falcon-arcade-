@@ -31,9 +31,9 @@ export const gameDefinitions: GameDefinition[] = [
     route: '/epoch-rise',
     tagline: 'Vertical energy run',
     description:
-      'Rise forever while managing energy. Collect quantum orbs, dodge bad ledgers, grab shields and boosts — claim at 500 points on a single run.',
+      'Start at the bottom and fly freely in 2D. Climb for fast orbs, drop back for distant ones — manage energy, claim at 500 on a single run.',
     longDescription:
-      'Epoch Rise is a vertical energy scroller. Your falcon ascends continuously; steer left and right, dash through gaps, and keep the energy bar alive. Bad ledgers and quantum interference drain energy; orbs restore it and score. Riskier orb clusters, temporary shields, and boost zones reward bold play. Best single-run score of the day unlocks the claim; keep playing for the leaderboard.',
+      'Epoch Rise is a vertical energy run. Your falcon starts near the bottom while the world rises past you. Move freely up, down, left, and right (WASD or drag) to snag quantum orbs, dodge ledgers, and grab shields or boosts. Dash in your travel direction with Space. Best single-run score of the day unlocks the claim.',
     scoreLabel: 'Rise score',
     rewardLabel: 'Claim at 500 pts',
   },
