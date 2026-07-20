@@ -1,8 +1,33 @@
 import Phaser from 'phaser'
 import {
+  attachQuantumPulse,
+  createDataStream,
+  createDeathEmitter,
+  createHowToOverlay,
+  createParallaxStarfield,
+  createPauseButton,
+  createPlayerTrail,
+  createSparkEmitter,
+  createTouchAffordances,
+  drawDataStream,
+  ensureJuiceTextures,
+  flashCleanPass,
+  floatScoreText,
+  hasSeenHowTo,
+  markHowToSeen,
+  nearMissSpark,
+  playDeathJuice,
+  startTrail,
+  stopTrail,
+  updateParallaxStarfield,
+  type StarLayer,
+  type TouchZonePair,
+} from '../../utils/gameJuice'
+import {
   FALCON_COLORS,
   FALCON_FLIGHT,
   FALCON_FLIGHT_REWARD_THRESHOLD,
+  FALCON_FLIGHT_SLUG,
   type FalconFlightBridge,
   type FalconFlightGameState,
 } from './falconFlightConfig'
@@ -17,23 +42,26 @@ type ObstacleMeta = {
 }
 
 /**
- * Falcon Flight — horizontal auto-scroller.
- * Player controls vertical movement only; world scrolls left.
+ * Falcon Flight — horizontal auto-scroller with juice pass.
  */
 export class FalconFlightScene extends Phaser.Scene {
   private state: FalconFlightGameState = 'ready'
+  private paused = false
   private score = 0
+  private bestScore = 0
   private distanceAccumulator = 0
   private scrollSpeed: number = FALCON_FLIGHT.baseScrollSpeed
   private difficulty = 0
   private nextSpawnAt = 0
   private elapsedPlayMs = 0
+  private streamScroll = 0
+  private waitingHowTo = false
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
   private obstacles!: Phaser.Physics.Arcade.Group
-  private stars!: Phaser.GameObjects.Graphics
-  private starOffsets: { x: number; y: number; s: number; a: number }[] = []
+  private starLayers: StarLayer[] = []
+  private dataStream!: Phaser.GameObjects.Graphics
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
   private keyW!: Phaser.Input.Keyboard.Key
@@ -41,15 +69,23 @@ export class FalconFlightScene extends Phaser.Scene {
   private keyUp!: Phaser.Input.Keyboard.Key
   private keyDown!: Phaser.Input.Keyboard.Key
   private keySpace!: Phaser.Input.Keyboard.Key
+  private keyP!: Phaser.Input.Keyboard.Key
 
   private pointerUpHeld = false
   private pointerDownHeld = false
   private touchZone: 'none' | 'up' | 'down' = 'none'
+  private touchUi!: TouchZonePair
+  private zonesFaded = false
 
   private hudScore!: Phaser.GameObjects.Text
   private hudHint!: Phaser.GameObjects.Text
+  private pauseDim!: Phaser.GameObjects.Rectangle
+  private pauseLabel!: Phaser.GameObjects.Text
   private overlay!: Phaser.GameObjects.Container
   private deathEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private trail!: Phaser.GameObjects.Particles.ParticleEmitter
+  private newBestBanner!: Phaser.GameObjects.Text
 
   private wingFlap = 0
 
@@ -59,9 +95,11 @@ export class FalconFlightScene extends Phaser.Scene {
 
   create() {
     const { width, height } = this.scale
-
     this.cameras.main.setBackgroundColor(FALCON_COLORS.bgHex)
-    this.createStarfield(width, height)
+    ensureJuiceTextures(this)
+
+    this.starLayers = createParallaxStarfield(this, width, height)
+    this.dataStream = createDataStream(this, 1)
     this.createTextures()
 
     this.obstacles = this.physics.add.group({
@@ -69,6 +107,7 @@ export class FalconFlightScene extends Phaser.Scene {
       immovable: true,
     })
 
+    this.trail = createPlayerTrail(this, 9)
     this.falconVisual = this.createFalconVisual()
     this.falcon = this.physics.add.image(
       FALCON_FLIGHT.playerX,
@@ -76,7 +115,6 @@ export class FalconFlightScene extends Phaser.Scene {
       'falcon-hitbox',
     )
     this.falcon.setVisible(false)
-    // setCircle radius is in unscaled texture space (texture is 32×32).
     this.falcon.setCircle(FALCON_FLIGHT.playerRadius)
     this.falcon.body?.setOffset(
       16 - FALCON_FLIGHT.playerRadius,
@@ -94,25 +132,75 @@ export class FalconFlightScene extends Phaser.Scene {
       this,
     )
 
+    this.touchUi = createTouchAffordances(this, 'vertical')
     this.setupInput()
     this.createHud(width, height)
-    this.createDeathParticles()
+    this.deathEmitter = createDeathEmitter(this)
+    this.sparkEmitter = createSparkEmitter(this)
     this.resetRun(false)
-    this.showOverlay('ready')
-    this.emitState('ready')
+
+    if (!hasSeenHowTo(FALCON_FLIGHT_SLUG)) {
+      this.waitingHowTo = true
+      createHowToOverlay(
+        this,
+        'Falcon Flight',
+        [
+          'Fly forward automatically.',
+          'Steer ↑↓ / W S or hold top / bottom of the screen.',
+          'Slip through ledger gaps — clear for bonus points.',
+          `Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock Claim.`,
+        ],
+        () => {
+          markHowToSeen(FALCON_FLIGHT_SLUG)
+          this.waitingHowTo = false
+          this.showOverlay('ready')
+          this.emitState('ready')
+        },
+      )
+    } else {
+      this.showOverlay('ready')
+      this.emitState('ready')
+    }
     this.emitScore(0)
   }
 
   update(_time: number, delta: number) {
-    this.scrollStarfield(delta)
+    const scrollRef =
+      this.state === 'playing' && !this.paused ? this.scrollSpeed : 36
+    updateParallaxStarfield(
+      this.starLayers,
+      this.scale.width,
+      this.scale.height,
+      scrollRef,
+      delta,
+      'x',
+    )
+    this.streamScroll += scrollRef * (delta / 1000) * 0.45
+    drawDataStream(
+      this.dataStream,
+      this.scale.width,
+      this.scale.height,
+      this.streamScroll,
+      'horizontal',
+    )
+
+    if (this.waitingHowTo) return
+
+    if (
+      this.keyP &&
+      Phaser.Input.Keyboard.JustDown(this.keyP) &&
+      this.state === 'playing'
+    ) {
+      this.togglePause()
+    }
+
+    if (this.paused) return
+
     this.updateFalconVisual(delta)
-    this.readVerticalInput()
 
     if (this.state === 'ready') {
       this.bobFalconIdle(delta)
-      if (this.wantsStart()) {
-        this.beginRun()
-      }
+      if (this.wantsStart()) this.beginRun()
       return
     }
 
@@ -124,7 +212,6 @@ export class FalconFlightScene extends Phaser.Scene {
       return
     }
 
-    // playing
     this.elapsedPlayMs += delta
     this.difficulty = Phaser.Math.Clamp(
       this.elapsedPlayMs / (FALCON_FLIGHT.difficultyRampSeconds * 1000),
@@ -154,115 +241,75 @@ export class FalconFlightScene extends Phaser.Scene {
       g.generateTexture('falcon-hitbox', 32, 32)
       g.destroy()
     }
-
-    if (!this.textures.exists('spark')) {
-      const g = this.make.graphics({ x: 0, y: 0 })
-      g.fillStyle(0xffffff, 1)
-      g.fillCircle(4, 4, 4)
-      g.generateTexture('spark', 8, 8)
-      g.destroy()
-    }
-
     if (!this.textures.exists('ledger-block')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 64
       const h = 64
       g.fillStyle(FALCON_COLORS.ledgerFace, 1)
       g.fillRoundedRect(0, 0, w, h, 6)
-      g.lineStyle(2, FALCON_COLORS.bronze, 0.85)
+      g.lineStyle(2, FALCON_COLORS.bronze, 0.9)
       g.strokeRoundedRect(1, 1, w - 2, h - 2, 6)
-      // faux ledger lines
       g.lineStyle(1, FALCON_COLORS.bronzeDark, 0.55)
-      for (let y = 14; y < h - 8; y += 10) {
-        g.lineBetween(10, y, w - 10, y)
-      }
+      for (let y = 14; y < h - 8; y += 10) g.lineBetween(10, y, w - 10, y)
+      g.fillStyle(FALCON_COLORS.bronze, 0.15)
+      g.fillRect(8, 8, w - 16, 6)
       g.generateTexture('ledger-block', w, h)
       g.destroy()
     }
-
     if (!this.textures.exists('quantum-bar')) {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 28
       const h = 64
       g.fillStyle(FALCON_COLORS.quantumDim, 0.95)
       g.fillRect(0, 0, w, h)
-      g.lineStyle(2, FALCON_COLORS.quantum, 0.9)
+      g.lineStyle(2, FALCON_COLORS.quantum, 0.95)
       g.strokeRect(1, 1, w - 2, h - 2)
-      // static hatch
-      g.lineStyle(1, FALCON_COLORS.quantum, 0.45)
-      for (let i = -h; i < w + h; i += 8) {
-        g.lineBetween(i, 0, i + h, h)
-      }
+      g.lineStyle(1, FALCON_COLORS.quantum, 0.5)
+      for (let i = -h; i < w + h; i += 8) g.lineBetween(i, 0, i + h, h)
       g.generateTexture('quantum-bar', w, h)
       g.destroy()
     }
   }
 
   private createFalconVisual() {
-    const container = this.add.container(FALCON_FLIGHT.playerX, this.scale.height / 2)
-    container.setDepth(11)
+    const c = this.add.container(FALCON_FLIGHT.playerX, this.scale.height / 2)
+    c.setDepth(11)
 
-    // Tail feathers
-    const tail = this.add.triangle( -18, 0, 0, -8, 0, 8, -16, 0, FALCON_COLORS.bronzeDark)
-    // Body chevron (pointing right)
-    const body = this.add.triangle(2, 0, -14, -12, -14, 12, 22, 0, FALCON_COLORS.bronze)
-    // Wing top
-    const wingTop = this.add.triangle(-2, -10, -10, 0, 8, -2, -4, -22, FALCON_COLORS.bronzeBright)
-    // Wing bottom
-    const wingBot = this.add.triangle(-2, 10, -10, 0, 8, 2, -4, 22, FALCON_COLORS.bronzeDark)
-    // Head accent
-    const head = this.add.circle(14, -2, 5, FALCON_COLORS.bronzeBright)
-    const beak = this.add.triangle(22, 0, 0, -3, 0, 3, 10, 0, FALCON_COLORS.bronzeBright)
-    // Eye
-    const eye = this.add.circle(16, -3, 1.6, 0x020617)
+    const glow = this.add.circle(0, 0, 26, FALCON_COLORS.bronze, 0.16)
+    const outerGlow = this.add.circle(2, 0, 34, FALCON_COLORS.bronzeBright, 0.06)
+    const tail = this.add.triangle(-20, 0, 0, -9, 0, 9, -18, 0, FALCON_COLORS.bronzeDark)
+    const tailInner = this.add.triangle(-14, 0, 0, -5, 0, 5, -10, 0, FALCON_COLORS.bronze)
+    const body = this.add.triangle(2, 0, -14, -13, -14, 13, 24, 0, FALCON_COLORS.bronze)
+    const bodyCore = this.add.triangle(0, 0, -8, -7, -8, 7, 14, 0, FALCON_COLORS.bronzeBright)
+    const wingTop = this.add.triangle(-2, -11, -12, 0, 10, -2, -6, -24, FALCON_COLORS.bronzeBright)
+    const wingBot = this.add.triangle(-2, 11, -12, 0, 10, 2, -6, 24, FALCON_COLORS.bronzeDark)
+    const wingTipT = this.add.triangle(-8, -20, 0, -4, 6, -6, -4, -28, FALCON_COLORS.bronze)
+    const wingTipB = this.add.triangle(-8, 20, 0, 4, 6, 6, -4, 28, FALCON_COLORS.bronze)
+    const head = this.add.circle(16, -2, 6, FALCON_COLORS.bronzeBright)
+    const beak = this.add.triangle(24, 0, 0, -3.5, 0, 3.5, 12, 0, FALCON_COLORS.bronzeBright)
+    const eye = this.add.circle(18, -3, 1.8, 0x020617)
+    const eyeGlint = this.add.circle(18.6, -3.5, 0.7, 0xf1f5f9)
 
-    // Soft glow
-    const glow = this.add.circle(0, 0, 22, FALCON_COLORS.bronze, 0.12)
-
-    container.add([glow, tail, wingBot, wingTop, body, head, beak, eye])
-    container.setData('wingTop', wingTop)
-    container.setData('wingBot', wingBot)
-    return container
-  }
-
-  private createStarfield(width: number, height: number) {
-    this.stars = this.add.graphics().setDepth(0)
-    this.starOffsets = []
-    for (let i = 0; i < 48; i += 1) {
-      this.starOffsets.push({
-        x: Phaser.Math.Between(0, width),
-        y: Phaser.Math.Between(0, height),
-        s: Phaser.Math.FloatBetween(0.6, 2.2),
-        a: Phaser.Math.FloatBetween(0.25, 0.85),
-      })
-    }
-    this.drawStars()
-
-    // Horizon grid line (ledger aesthetic)
-    const grid = this.add.graphics().setDepth(1).setAlpha(0.2)
-    grid.lineStyle(1, FALCON_COLORS.bronze, 0.35)
-    for (let y = 0; y < height; y += 54) {
-      grid.lineBetween(0, y, width, y)
-    }
-  }
-
-  private drawStars() {
-    const { width } = this.scale
-    this.stars.clear()
-    for (const star of this.starOffsets) {
-      this.stars.fillStyle(FALCON_COLORS.star, star.a)
-      this.stars.fillCircle(star.x % width, star.y, star.s)
-    }
-  }
-
-  private scrollStarfield(delta: number) {
-    const drift = (this.state === 'playing' ? this.scrollSpeed : 40) * (delta / 1000) * 0.35
-    const { width } = this.scale
-    for (const star of this.starOffsets) {
-      star.x -= drift * (0.4 + star.s * 0.3)
-      if (star.x < 0) star.x += width
-    }
-    this.drawStars()
+    c.add([
+      outerGlow,
+      glow,
+      wingTipB,
+      wingBot,
+      tail,
+      tailInner,
+      wingTipT,
+      wingTop,
+      body,
+      bodyCore,
+      head,
+      beak,
+      eye,
+      eyeGlint,
+    ])
+    c.setData('wingTop', wingTop)
+    c.setData('wingBot', wingBot)
+    c.setData('glow', glow)
+    return c
   }
 
   private setupInput() {
@@ -273,9 +320,11 @@ export class FalconFlightScene extends Phaser.Scene {
       this.keyUp = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP)
       this.keyDown = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN)
       this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+      this.keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P)
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.waitingHowTo || this.paused) return
       if (this.state === 'ready') {
         this.beginRun()
         return
@@ -285,18 +334,20 @@ export class FalconFlightScene extends Phaser.Scene {
         this.beginRun()
         return
       }
-
+      this.fadeTouchZonesOnce()
       this.updateTouchZone(pointer.y)
       if (pointer.y < this.scale.height / 2) {
         this.pointerUpHeld = true
         this.pointerDownHeld = false
+        this.touchUi.pulse('a')
       } else {
         this.pointerDownHeld = true
         this.pointerUpHeld = false
+        this.touchUi.pulse('b')
       }
     })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown) return
+      if (!pointer.isDown || this.paused) return
       this.updateTouchZone(pointer.y)
       if (pointer.y < this.scale.height / 2) {
         this.pointerUpHeld = true
@@ -317,72 +368,108 @@ export class FalconFlightScene extends Phaser.Scene {
     this.touchZone = y < this.scale.height / 2 ? 'up' : 'down'
   }
 
+  private fadeTouchZonesOnce() {
+    if (this.zonesFaded) return
+    this.zonesFaded = true
+    this.time.delayedCall(1400, () => this.touchUi.setActive(false))
+  }
+
   private createHud(width: number, height: number) {
+    const panel = this.add
+      .rectangle(12, 12, 168, 58, 0x0f172a, 0.82)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, FALCON_COLORS.bronze, 0.35)
+      .setDepth(30)
+
     this.hudScore = this.add
-      .text(20, 16, 'SCORE  0', {
+      .text(22, 18, 'SCORE  0', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '22px',
+        fontSize: '20px',
         color: '#f1f5f9',
         fontStyle: '700',
       })
-      .setDepth(30)
-      .setScrollFactor(0)
+      .setDepth(31)
 
     this.add
-      .text(20, 44, `THRESHOLD  ${FALCON_FLIGHT_REWARD_THRESHOLD}`, {
+      .text(22, 44, `THRESHOLD  ${FALCON_FLIGHT_REWARD_THRESHOLD}`, {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '12px',
+        fontSize: '11px',
         color: '#94a3b8',
         fontStyle: '600',
       })
-      .setDepth(30)
-      .setScrollFactor(0)
+      .setDepth(31)
 
     this.hudHint = this.add
-      .text(width / 2, height - 28, '↑↓ / W S  ·  touch top/bottom half  ·  SPACE to start', {
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '13px',
-        color: '#94a3b8',
-      })
+      .text(
+        width / 2,
+        height - 24,
+        '↑↓ / W S  ·  hold top/bottom  ·  P pause  ·  SPACE start',
+        {
+          fontFamily: 'Inter, system-ui, sans-serif',
+          fontSize: '12px',
+          color: '#94a3b8',
+        },
+      )
       .setOrigin(0.5)
       .setDepth(30)
-      .setScrollFactor(0)
 
-    // Subtle top/bottom touch affordance bands
-    const bandAlpha = 0.04
-    this.add
-      .rectangle(width / 2, height * 0.12, width, height * 0.24, FALCON_COLORS.bronze, bandAlpha)
-      .setDepth(2)
-    this.add
-      .rectangle(width / 2, height * 0.88, width, height * 0.24, FALCON_COLORS.quantum, bandAlpha)
-      .setDepth(2)
+    createPauseButton(this, () => {
+      if (this.state === 'playing') this.togglePause()
+    })
+
+    this.pauseDim = this.add
+      .rectangle(width / 2, height / 2, width, height, 0x020617, 0.55)
+      .setDepth(55)
+      .setVisible(false)
+    this.pauseLabel = this.add
+      .text(width / 2, height / 2, 'PAUSED\nP or tap Ⅱ to resume', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#f1f5f9',
+        align: 'center',
+        fontStyle: '700',
+      })
+      .setOrigin(0.5)
+      .setDepth(56)
+      .setVisible(false)
+
+    this.newBestBanner = this.add
+      .text(width / 2, 72, 'NEW BEST!', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#d4922a',
+        fontStyle: '700',
+        stroke: '#020617',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(48)
+      .setAlpha(0)
+
+    void panel
   }
 
-  private createDeathParticles() {
-    this.deathEmitter = this.add.particles(0, 0, 'spark', {
-      lifespan: 650,
-      speed: { min: 80, max: 260 },
-      scale: { start: 1.2, end: 0 },
-      alpha: { start: 1, end: 0 },
-      tint: [FALCON_COLORS.bronzeBright, FALCON_COLORS.bronze, FALCON_COLORS.quantum],
-      emitting: false,
-      blendMode: 'ADD',
-      quantity: 24,
-    })
-    this.deathEmitter.setDepth(20)
+  private togglePause() {
+    if (this.state !== 'playing') return
+    this.paused = !this.paused
+    this.pauseDim.setVisible(this.paused)
+    this.pauseLabel.setVisible(this.paused)
+    if (this.paused) {
+      stopTrail(this.trail)
+      this.physics.pause()
+    } else {
+      this.physics.resume()
+      startTrail(this.trail, this.falcon)
+    }
   }
 
   private createOverlay() {
-    if (this.overlay) {
-      this.overlay.destroy(true)
-    }
-
+    if (this.overlay) this.overlay.destroy(true)
     const { width, height } = this.scale
     const container = this.add.container(width / 2, height / 2).setDepth(40)
     const panel = this.add
-      .rectangle(0, 0, 420, 210, FALCON_COLORS.panel, 0.94)
-      .setStrokeStyle(2, FALCON_COLORS.bronze, 0.7)
-
+      .rectangle(0, 0, 420, 210, FALCON_COLORS.panel, 0.95)
+      .setStrokeStyle(2, FALCON_COLORS.bronze, 0.75)
     const title = this.add
       .text(0, -58, '', {
         fontFamily: 'Inter, system-ui, sans-serif',
@@ -391,7 +478,6 @@ export class FalconFlightScene extends Phaser.Scene {
         fontStyle: '700',
       })
       .setOrigin(0.5)
-
     const body = this.add
       .text(0, -8, '', {
         fontFamily: 'Inter, system-ui, sans-serif',
@@ -401,7 +487,6 @@ export class FalconFlightScene extends Phaser.Scene {
         wordWrap: { width: 360 },
       })
       .setOrigin(0.5)
-
     const cta = this.add
       .text(0, 62, '', {
         fontFamily: 'Inter, system-ui, sans-serif',
@@ -410,7 +495,6 @@ export class FalconFlightScene extends Phaser.Scene {
         fontStyle: '700',
       })
       .setOrigin(0.5)
-
     container.add([panel, title, body, cta])
     container.setData('title', title)
     container.setData('body', body)
@@ -421,14 +505,12 @@ export class FalconFlightScene extends Phaser.Scene {
       Phaser.Geom.Rectangle.Contains,
     )
     container.on('pointerdown', () => {
-      if (this.state === 'ready') {
-        this.beginRun()
-      } else if (this.state === 'gameover') {
+      if (this.state === 'ready') this.beginRun()
+      else if (this.state === 'gameover') {
         this.resetRun(true)
         this.beginRun()
       }
     })
-
     this.overlay = container
   }
 
@@ -437,46 +519,43 @@ export class FalconFlightScene extends Phaser.Scene {
     const title = this.overlay.getData('title') as Phaser.GameObjects.Text
     const body = this.overlay.getData('body') as Phaser.GameObjects.Text
     const cta = this.overlay.getData('cta') as Phaser.GameObjects.Text
-
     if (mode === 'ready') {
       title.setText('Falcon Flight')
       body.setText(
-        'Fly forward automatically. Steer up and down to slip through ledger gaps and dodge quantum static.',
+        'Fly forward automatically. Steer up and down through ledger gaps and dodge quantum static.',
       )
       cta.setText('TAP / SPACE TO LAUNCH')
     } else {
       title.setText('Signal Lost')
       body.setText(
-        `Final score  ${this.score}\nClear ${FALCON_FLIGHT_REWARD_THRESHOLD} points to unlock the Game Faucet claim.`,
+        `Final score  ${this.score}\nClear ${FALCON_FLIGHT_REWARD_THRESHOLD} points to unlock Claim.`,
       )
       cta.setText('TAP / SPACE TO RESTART')
     }
-
     this.overlay.setVisible(true)
-    this.hudHint.setText(
-      mode === 'ready'
-        ? '↑↓ / W S  ·  touch top/bottom half  ·  SPACE to start'
-        : 'SPACE or tap to restart',
-    )
   }
 
   private hideOverlay() {
-    if (this.overlay) {
-      this.overlay.setVisible(false)
-    }
+    if (this.overlay) this.overlay.setVisible(false)
   }
 
-  // ── run lifecycle ──────────────────────────────────────
+  // ── lifecycle ──────────────────────────────────────────
 
-  private resetRun(preserveBest: boolean) {
-    void preserveBest
+  private resetRun(_preserveBest: boolean) {
     this.state = 'ready'
+    this.paused = false
+    this.physics.resume()
+    this.pauseDim?.setVisible(false)
+    this.pauseLabel?.setVisible(false)
     this.score = 0
     this.distanceAccumulator = 0
     this.scrollSpeed = FALCON_FLIGHT.baseScrollSpeed
     this.difficulty = 0
     this.elapsedPlayMs = 0
     this.nextSpawnAt = 0
+    this.zonesFaded = false
+    this.touchUi.setActive(true)
+    stopTrail(this.trail)
 
     this.obstacles.clear(true, true)
     this.falcon.setPosition(FALCON_FLIGHT.playerX, this.scale.height / 2)
@@ -484,47 +563,52 @@ export class FalconFlightScene extends Phaser.Scene {
     this.falconVisual.setPosition(this.falcon.x, this.falcon.y)
     this.falconVisual.setAlpha(1)
     this.falconVisual.setAngle(0)
-
     this.hudScore.setText('SCORE  0')
+    this.hudScore.setColor('#f1f5f9')
     this.emitScore(0)
   }
 
   private beginRun() {
+    if (this.waitingHowTo) return
     this.state = 'playing'
     this.hideOverlay()
     this.nextSpawnAt = this.time.now + 700
-    this.hudHint.setText('Steer clear of ledger blocks & quantum static')
+    this.hudHint.setText('Steer clear · P to pause · claim at 100')
+    startTrail(this.trail, this.falcon)
     this.emitState('playing')
   }
 
   private handleCrash() {
-    if (this.state !== 'playing') return
-
+    if (this.state !== 'playing' || this.paused) return
     this.state = 'gameover'
     this.falcon.setVelocity(0, 0)
+    stopTrail(this.trail)
 
-    this.deathEmitter.setPosition(this.falcon.x, this.falcon.y)
-    this.deathEmitter.explode(28)
-    this.cameras.main.shake(280, 0.012)
-    this.cameras.main.flash(120, 192, 120, 56, false)
+    playDeathJuice(
+      this,
+      this.falcon.x,
+      this.falcon.y,
+      this.difficulty,
+      this.deathEmitter,
+    )
 
     this.tweens.add({
       targets: this.falconVisual,
-      alpha: 0.25,
-      angle: 18,
-      duration: 240,
+      alpha: 0.2,
+      angle: 22,
+      duration: 280,
       ease: 'Quad.easeOut',
     })
 
-    this.showOverlay('gameover')
-    this.emitState('gameover')
-    this.emitScore(this.score)
+    this.time.delayedCall(340, () => {
+      this.showOverlay('gameover')
+      this.emitState('gameover')
+      this.emitScore(this.score)
+    })
   }
 
-  // ── movement & scoring ─────────────────────────────────
-
-  private readVerticalInput() {
-    // Pointer state already tracked via events.
+  private wantsStart(): boolean {
+    return Boolean(this.keySpace && Phaser.Input.Keyboard.JustDown(this.keySpace))
   }
 
   private verticalIntent(): number {
@@ -536,18 +620,11 @@ export class FalconFlightScene extends Phaser.Scene {
     return Phaser.Math.Clamp(dir, -1, 1)
   }
 
-  private wantsStart(): boolean {
-    const spaceJust =
-      this.keySpace && Phaser.Input.Keyboard.JustDown(this.keySpace)
-    // pointerdown on overlay handled separately; also allow anywhere when ready/gameover
-    return Boolean(spaceJust)
-  }
-
   private applyVerticalMovement() {
     const intent = this.verticalIntent()
+    if (intent !== 0) this.fadeTouchZonesOnce()
     this.falcon.setVelocityY(intent * FALCON_FLIGHT.verticalSpeed)
 
-    // Soft clamp inside playfield padding
     const pad = 28
     const body = this.falcon.body as Phaser.Physics.Arcade.Body
     if (this.falcon.y < pad) {
@@ -573,7 +650,6 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private updateFalconVisual(delta: number) {
     if (!this.falconVisual || !this.falcon) return
-
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
 
@@ -586,11 +662,13 @@ export class FalconFlightScene extends Phaser.Scene {
         0.2,
       )
       this.wingFlap += delta * (1 + this.difficulty)
-      const flap = Math.sin(this.wingFlap / 90) * 4
+      const flap = Math.sin(this.wingFlap / 90) * 5
       const wingTop = this.falconVisual.getData('wingTop') as Phaser.GameObjects.Triangle
       const wingBot = this.falconVisual.getData('wingBot') as Phaser.GameObjects.Triangle
-      wingTop.y = -10 - flap
-      wingBot.y = 10 + flap
+      const glow = this.falconVisual.getData('glow') as Phaser.GameObjects.Arc
+      wingTop.y = -11 - flap
+      wingBot.y = 11 + flap
+      glow.setScale(1 + Math.sin(this.wingFlap / 140) * 0.08)
     }
   }
 
@@ -598,7 +676,6 @@ export class FalconFlightScene extends Phaser.Scene {
     const speedFactor = this.scrollSpeed / FALCON_FLIGHT.baseScrollSpeed
     this.distanceAccumulator +=
       (FALCON_FLIGHT.distancePointsPerSecond * speedFactor * delta) / 1000
-
     while (this.distanceAccumulator >= 1) {
       this.distanceAccumulator -= 1
       this.addScore(1)
@@ -608,24 +685,64 @@ export class FalconFlightScene extends Phaser.Scene {
   private addScore(amount: number) {
     const prev = this.score
     this.score += amount
-    if (this.score !== prev) {
-      this.hudScore.setText(`SCORE  ${this.score}`)
-      if (
-        this.score >= FALCON_FLIGHT_REWARD_THRESHOLD &&
-        prev < FALCON_FLIGHT_REWARD_THRESHOLD
-      ) {
-        this.hudScore.setColor('#d4922a')
-        this.cameras.main.flash(80, 208, 146, 42, false)
-      }
-      this.emitScore(this.score)
+    if (this.score === prev) return
+
+    this.hudScore.setText(`SCORE  ${this.score}`)
+    if (
+      this.score >= FALCON_FLIGHT_REWARD_THRESHOLD &&
+      prev < FALCON_FLIGHT_REWARD_THRESHOLD
+    ) {
+      this.hudScore.setColor('#d4922a')
+      this.cameras.main.flash(90, 208, 146, 42, false)
+      floatScoreText(
+        this,
+        this.falcon.x,
+        this.falcon.y - 36,
+        'THRESHOLD!',
+        '#d4922a',
+        { fontSize: '18px' },
+      )
     }
+
+    if (this.score > this.bestScore) {
+      const was = this.bestScore
+      this.bestScore = this.score
+      if (was > 0 && this.score > was) this.showNewBest()
+    }
+
+    this.tweens.add({
+      targets: this.hudScore,
+      scale: 1.08,
+      duration: 70,
+      yoyo: true,
+    })
+    this.emitScore(this.score)
+  }
+
+  private showNewBest() {
+    this.newBestBanner.setAlpha(0).setScale(0.7).setY(72)
+    this.tweens.add({
+      targets: this.newBestBanner,
+      alpha: 1,
+      scale: 1.1,
+      duration: 180,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: this.newBestBanner,
+          alpha: 0,
+          y: 48,
+          delay: 700,
+          duration: 350,
+        })
+      },
+    })
   }
 
   // ── obstacles ──────────────────────────────────────────
 
   private spawnObstaclesIfNeeded() {
     if (this.time.now < this.nextSpawnAt) return
-
     const gap = Phaser.Math.Linear(
       FALCON_FLIGHT.gapMax,
       FALCON_FLIGHT.gapMin,
@@ -636,14 +753,8 @@ export class FalconFlightScene extends Phaser.Scene {
       FALCON_FLIGHT.spawnMinMs,
       this.difficulty,
     )
-
-    // Mix ledger pairs with occasional quantum static columns
-    if (Math.random() < 0.28 + this.difficulty * 0.15) {
-      this.spawnQuantumBarrier()
-    } else {
-      this.spawnLedgerPair(gap)
-    }
-
+    if (Math.random() < 0.28 + this.difficulty * 0.15) this.spawnQuantumBarrier()
+    else this.spawnLedgerPair(gap)
     this.nextSpawnAt = this.time.now + interval * Phaser.Math.FloatBetween(0.85, 1.1)
   }
 
@@ -658,7 +769,6 @@ export class FalconFlightScene extends Phaser.Scene {
     const topBottom = gapCenter - gapHeight / 2
     const bottomTop = gapCenter + gapHeight / 2
     const blockWidth = 58
-
     const topHeight = Math.max(24, topBottom)
     const bottomHeight = Math.max(24, height - bottomTop)
 
@@ -670,7 +780,6 @@ export class FalconFlightScene extends Phaser.Scene {
       bottomHeight,
       'ledger',
     )
-
     const meta: ObstacleMeta = {
       kind: 'ledger',
       scored: false,
@@ -679,38 +788,33 @@ export class FalconFlightScene extends Phaser.Scene {
     }
     top.setData('meta', meta)
     bottom.setData('meta', meta)
-    // Share one meta object so scoring only fires once for the pair
   }
 
   private spawnQuantumBarrier() {
     const { width, height } = this.scale
     const x = width + 40
-    // Keep slots fairly generous so “ghost” collisions don’t feel unfair
     const slotH = Phaser.Math.Linear(140, 95, this.difficulty)
     const slotCenter = Phaser.Math.Between(90, height - 90)
     const barW = 26
-
     const topH = Math.max(20, slotCenter - slotH / 2)
     const botY = slotCenter + slotH / 2
     const botH = Math.max(20, height - botY)
-    const segments: { y: number; h: number }[] = [
-      { y: topH / 2, h: topH },
-      { y: botY + botH / 2, h: botH },
-    ]
-
     const meta: ObstacleMeta = {
       kind: 'quantum',
       scored: false,
       gapCenterY: slotCenter,
       gapHalf: slotH / 2,
     }
-
-    for (const seg of segments) {
+    for (const seg of [
+      { y: topH / 2, h: topH },
+      { y: botY + botH / 2, h: botH },
+    ]) {
       const bar = this.obstacles.create(x, seg.y, 'quantum-bar') as Phaser.Physics.Arcade.Image
       this.fitObstacleBody(bar, barW, seg.h, 0.78, 0.9)
       bar.setData('meta', meta)
       bar.setDepth(5)
       bar.setImmovable(true)
+      attachQuantumPulse(this, bar)
     }
   }
 
@@ -723,18 +827,12 @@ export class FalconFlightScene extends Phaser.Scene {
   ) {
     const key = kind === 'ledger' ? 'ledger-block' : 'quantum-bar'
     const block = this.obstacles.create(x, y, key) as Phaser.Physics.Arcade.Image
-    // Hitbox slightly tighter than the art so gaps feel honest
     this.fitObstacleBody(block, w, h, 0.78, 0.9)
     block.setImmovable(true)
     block.setDepth(5)
     return block
   }
 
-  /**
-   * Phaser Arcade `body.setSize` is in *unscaled texture* units, then multiplied
-   * by the sprite’s scale. Passing display-pixel sizes made hitboxes huge
-   * (ghost collisions past the visible ledge/barrier).
-   */
   private fitObstacleBody(
     obj: Phaser.Physics.Arcade.Image,
     displayW: number,
@@ -743,12 +841,9 @@ export class FalconFlightScene extends Phaser.Scene {
     hitScaleY = 0.9,
   ) {
     obj.setDisplaySize(displayW, displayH)
-
     const body = obj.body as Phaser.Physics.Arcade.Body
     const frameW = obj.frame.width
     const frameH = obj.frame.height
-
-    // World hitbox ≈ display * hitScale; convert to pre-scale source size.
     const sourceW = frameW * hitScaleX
     const sourceH = frameH * hitScaleY
     body.setSize(sourceW, sourceH)
@@ -761,7 +856,6 @@ export class FalconFlightScene extends Phaser.Scene {
     const children = this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]
 
     for (const obs of children) {
-      // Keep body centered with the sprite while scrolling
       obs.x -= dx
       const body = obs.body as Phaser.Physics.Arcade.Body | null
       if (body) {
@@ -772,36 +866,45 @@ export class FalconFlightScene extends Phaser.Scene {
       const meta = obs.getData('meta') as ObstacleMeta | undefined
       if (!meta || meta.scored) continue
 
-      // Score when obstacle center passes behind the falcon
-      if (obs.x + (obs.displayWidth / 2) < this.falcon.x - 8) {
+      if (obs.x + obs.displayWidth / 2 < this.falcon.x - 8) {
         meta.scored = true
-        this.addScore(FALCON_FLIGHT.gapPassBonus)
-        this.tweens.add({
-          targets: this.hudScore,
-          scale: 1.12,
-          duration: 80,
-          yoyo: true,
-        })
+        const bonus = FALCON_FLIGHT.gapPassBonus
+        this.addScore(bonus)
+
+        // Near-miss if falcon is close to gap edge
+        const gapCenter = meta.gapCenterY ?? this.falcon.y
+        const gapHalf = meta.gapHalf ?? 80
+        const edgeDist = Math.abs(this.falcon.y - gapCenter)
+        const nearMiss = edgeDist > gapHalf * 0.62
+
+        if (nearMiss) {
+          nearMissSpark(this, this.sparkEmitter, this.falcon.x + 20, this.falcon.y)
+          floatScoreText(this, this.falcon.x + 24, this.falcon.y - 18, 'CLOSE!', '#22d3ee')
+        } else {
+          flashCleanPass(this)
+          floatScoreText(
+            this,
+            this.falcon.x + 28,
+            this.falcon.y - 20,
+            `+${bonus} CLEAN`,
+            '#d4922a',
+          )
+        }
       }
     }
   }
 
   private cullObstacles() {
-    const children = this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]
-    for (const obs of children) {
-      if (obs.x < -80) {
-        obs.destroy()
-      }
+    for (const obs of this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (obs.x < -80) obs.destroy()
     }
   }
 
-  // ── bridge ─────────────────────────────────────────────
-
   private getBridge(): FalconFlightBridge | null {
-    const bridge = this.game.registry.get('falconFlightBridge') as
-      | FalconFlightBridge
-      | undefined
-    return bridge ?? null
+    return (
+      (this.game.registry.get('falconFlightBridge') as FalconFlightBridge | undefined) ??
+      null
+    )
   }
 
   private emitScore(score: number) {

@@ -1,8 +1,32 @@
 import Phaser from 'phaser'
 import {
+  attachQuantumPulse,
+  createDataStream,
+  createDeathEmitter,
+  createHowToOverlay,
+  createParallaxStarfield,
+  createPauseButton,
+  createPlayerTrail,
+  createSparkEmitter,
+  createTouchAffordances,
+  drawDataStream,
+  ensureJuiceTextures,
+  flashCleanPass,
+  floatScoreText,
+  hasSeenHowTo,
+  markHowToSeen,
+  playDeathJuice,
+  startTrail,
+  stopTrail,
+  updateParallaxStarfield,
+  type StarLayer,
+  type TouchZonePair,
+} from '../../utils/gameJuice'
+import {
   EPOCH_COLORS,
   EPOCH_RISE,
   EPOCH_RISE_REWARD_THRESHOLD,
+  EPOCH_RISE_SLUG,
   type EpochRiseBridge,
   type EpochRiseGameState,
 } from './epochRiseConfig'
@@ -29,13 +53,17 @@ type EntityMeta = {
  */
 export class EpochRiseScene extends Phaser.Scene {
   private state: EpochRiseGameState = 'ready'
+  private paused = false
+  private waitingHowTo = false
   private score = 0
+  private bestScore = 0
   private energy: number = EPOCH_RISE.maxEnergy
   private heightAccumulator = 0
   private riseSpeed: number = EPOCH_RISE.baseRiseSpeed
   private difficulty = 0
   private nextSpawnAt = 0
   private elapsedPlayMs = 0
+  private streamScroll = 0
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
@@ -55,22 +83,30 @@ export class EpochRiseScene extends Phaser.Scene {
   private keySpace!: Phaser.Input.Keyboard.Key
   private keyShift!: Phaser.Input.Keyboard.Key
   private keyW!: Phaser.Input.Keyboard.Key
+  private keyP!: Phaser.Input.Keyboard.Key
 
   private pointerDir = 0
 
-  private stars!: Phaser.GameObjects.Graphics
-  private starOffsets: { x: number; y: number; s: number; a: number }[] = []
+  private starLayers: StarLayer[] = []
+  private dataStream!: Phaser.GameObjects.Graphics
   private laneGfx!: Phaser.GameObjects.Graphics
   private laneScroll = 0
+  private touchUi!: TouchZonePair
+  private zonesFaded = false
 
   private hudScore!: Phaser.GameObjects.Text
   private hudHint!: Phaser.GameObjects.Text
   private energyFill!: Phaser.GameObjects.Rectangle
   private energyLabel!: Phaser.GameObjects.Text
+  private energyGlow!: Phaser.GameObjects.Rectangle
   private statusPills!: Phaser.GameObjects.Text
+  private pauseDim!: Phaser.GameObjects.Rectangle
+  private pauseLabel!: Phaser.GameObjects.Text
+  private newBestBanner!: Phaser.GameObjects.Text
   private overlay!: Phaser.GameObjects.Container
   private collectEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
   private hitEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private trail!: Phaser.GameObjects.Particles.ParticleEmitter
   private wingFlap = 0
 
   constructor() {
@@ -82,9 +118,11 @@ export class EpochRiseScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(EPOCH_COLORS.bgHex)
     this.physics.world.gravity.y = 0
     this.physics.world.setBounds(0, 0, width, height)
+    ensureJuiceTextures(this)
 
-    this.createStarfield(width, height)
-    this.laneGfx = this.add.graphics().setDepth(1)
+    this.starLayers = createParallaxStarfield(this, width, height)
+    this.dataStream = createDataStream(this, 1)
+    this.laneGfx = this.add.graphics().setDepth(2)
     this.createTextures()
 
     this.entities = this.physics.add.group({
@@ -92,6 +130,7 @@ export class EpochRiseScene extends Phaser.Scene {
       immovable: true,
     })
 
+    this.trail = createPlayerTrail(this, 9)
     this.falconVisual = this.createFalconVisual()
     this.falcon = this.physics.add.image(
       width / 2,
@@ -112,20 +151,71 @@ export class EpochRiseScene extends Phaser.Scene {
       this,
     )
 
+    this.touchUi = createTouchAffordances(this, 'horizontal')
     this.setupInput()
     this.createHud(width, height)
     this.createParticles()
+    this.hitEmitter = createDeathEmitter(this, 30)
     this.resetRun()
-    this.showOverlay('ready')
-    this.emitState('ready')
+
+    if (!hasSeenHowTo(EPOCH_RISE_SLUG)) {
+      this.waitingHowTo = true
+      createHowToOverlay(
+        this,
+        'Epoch Rise',
+        [
+          'Rise automatically — keep your energy alive.',
+          'Steer ←→ / A D or hold left / right half.',
+          'Collect orbs, dodge ledgers. Dash with Space (costs energy).',
+          `Claim unlocks at ${EPOCH_RISE_REWARD_THRESHOLD} points.`,
+        ],
+        () => {
+          markHowToSeen(EPOCH_RISE_SLUG)
+          this.waitingHowTo = false
+          this.showOverlay('ready')
+          this.emitState('ready')
+        },
+      )
+    } else {
+      this.showOverlay('ready')
+      this.emitState('ready')
+    }
     this.emitScore(0)
     this.emitEnergy()
   }
 
   update(_time: number, delta: number) {
-    this.scrollStarfield(delta)
+    const scrollRef =
+      this.state === 'playing' && !this.paused ? this.riseSpeed : 36
+    updateParallaxStarfield(
+      this.starLayers,
+      this.scale.width,
+      this.scale.height,
+      scrollRef,
+      delta,
+      'y',
+    )
+    this.streamScroll += scrollRef * (delta / 1000) * 0.5
+    drawDataStream(
+      this.dataStream,
+      this.scale.width,
+      this.scale.height,
+      this.streamScroll,
+      'vertical',
+    )
     this.drawLanes(delta)
     this.updateFalconVisual(delta)
+
+    if (this.waitingHowTo) return
+
+    if (
+      this.keyP &&
+      Phaser.Input.Keyboard.JustDown(this.keyP) &&
+      this.state === 'playing'
+    ) {
+      this.togglePause()
+    }
+    if (this.paused) return
 
     if (this.state === 'ready') {
       this.idleHover(delta)
@@ -304,42 +394,6 @@ export class EpochRiseScene extends Phaser.Scene {
     return c
   }
 
-  private createStarfield(width: number, height: number) {
-    this.stars = this.add.graphics().setDepth(0)
-    this.starOffsets = []
-    for (let i = 0; i < 50; i += 1) {
-      this.starOffsets.push({
-        x: Phaser.Math.Between(0, width),
-        y: Phaser.Math.Between(0, height),
-        s: Phaser.Math.FloatBetween(0.5, 2.2),
-        a: Phaser.Math.FloatBetween(0.2, 0.8),
-      })
-    }
-    this.drawStars()
-  }
-
-  private drawStars() {
-    const { width, height } = this.scale
-    this.stars.clear()
-    for (const star of this.starOffsets) {
-      this.stars.fillStyle(EPOCH_COLORS.star, star.a)
-      this.stars.fillCircle(
-        ((star.x % width) + width) % width,
-        ((star.y % height) + height) % height,
-        star.s,
-      )
-    }
-  }
-
-  private scrollStarfield(delta: number) {
-    const drift =
-      (this.state === 'playing' ? this.riseSpeed : 40) * (delta / 1000) * 0.55
-    for (const star of this.starOffsets) {
-      star.y += drift * (0.4 + star.s * 0.25)
-    }
-    this.drawStars()
-  }
-
   private drawLanes(delta: number) {
     if (this.state === 'playing') {
       this.laneScroll =
@@ -368,9 +422,11 @@ export class EpochRiseScene extends Phaser.Scene {
       this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
       this.keyShift = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT)
       this.keyW = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W)
+      this.keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P)
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.waitingHowTo || this.paused) return
       if (this.state === 'ready') {
         this.beginRun()
         return
@@ -381,15 +437,21 @@ export class EpochRiseScene extends Phaser.Scene {
         return
       }
 
+      if (!this.zonesFaded) {
+        this.zonesFaded = true
+        this.time.delayedCall(1400, () => this.touchUi.setActive(false))
+      }
+
       const mid = this.scale.width / 2
       this.pointerDir = pointer.x < mid ? -1 : 1
+      this.touchUi.pulse(this.pointerDir < 0 ? 'a' : 'b')
       // Upper third = dash
       if (pointer.y < this.scale.height * 0.28) {
         this.tryDash(this.pointerDir)
       }
     })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown || this.state !== 'playing') return
+      if (!pointer.isDown || this.state !== 'playing' || this.paused) return
       this.pointerDir = pointer.x < this.scale.width / 2 ? -1 : 1
     })
     this.input.on('pointerup', () => {
@@ -398,33 +460,41 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   private createHud(width: number, height: number) {
+    this.add
+      .rectangle(12, 12, 150, 52, 0x0f172a, 0.85)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, EPOCH_COLORS.bronze, 0.4)
+      .setDepth(40)
+
     this.hudScore = this.add
-      .text(20, 16, 'SCORE  0', {
+      .text(22, 18, 'SCORE  0', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '22px',
+        fontSize: '18px',
         color: '#f1f5f9',
         fontStyle: '700',
       })
-      .setDepth(40)
-      .setScrollFactor(0)
+      .setDepth(41)
 
     this.add
-      .text(20, 44, `THRESHOLD  ${EPOCH_RISE_REWARD_THRESHOLD}`, {
+      .text(22, 40, `TH  ${EPOCH_RISE_REWARD_THRESHOLD}`, {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '12px',
+        fontSize: '11px',
         color: '#94a3b8',
         fontStyle: '600',
       })
-      .setDepth(40)
+      .setDepth(41)
 
-    // Energy bar
+    // Premium energy bar
     const barX = width / 2
-    const barY = 28
-    const barW = 220
-    const barH = 14
+    const barY = 30
+    const barW = 240
+    const barH = 16
+    this.energyGlow = this.add
+      .rectangle(barX, barY, barW + 10, barH + 10, EPOCH_COLORS.quantum, 0.12)
+      .setDepth(40)
     this.add
-      .rectangle(barX, barY, barW + 6, barH + 6, EPOCH_COLORS.panel, 0.95)
-      .setStrokeStyle(1, EPOCH_COLORS.bronze, 0.5)
+      .rectangle(barX, barY, barW + 6, barH + 6, EPOCH_COLORS.panel, 0.96)
+      .setStrokeStyle(1, EPOCH_COLORS.bronze, 0.55)
       .setDepth(40)
     this.add
       .rectangle(barX, barY, barW, barH, EPOCH_COLORS.border, 1)
@@ -436,7 +506,7 @@ export class EpochRiseScene extends Phaser.Scene {
     this.energyLabel = this.add
       .text(barX, barY, 'ENERGY', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '10px',
+        fontSize: '11px',
         color: '#020617',
         fontStyle: '700',
       })
@@ -444,53 +514,80 @@ export class EpochRiseScene extends Phaser.Scene {
       .setDepth(43)
 
     this.statusPills = this.add
-      .text(width - 20, 20, '', {
+      .text(width - 56, 22, '', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '13px',
+        fontSize: '12px',
         color: '#d4922a',
         fontStyle: '700',
         align: 'right',
       })
       .setOrigin(1, 0)
-      .setDepth(40)
+      .setDepth(41)
 
     this.hudHint = this.add
       .text(
         width / 2,
-        height - 28,
-        '← → / A D steer  ·  SPACE / SHIFT dash  ·  collect orbs, avoid ledgers',
+        height - 24,
+        '← → steer  ·  SPACE dash  ·  P pause  ·  collect orbs',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: '13px',
+          fontSize: '12px',
           color: '#94a3b8',
         },
       )
       .setOrigin(0.5)
       .setDepth(40)
+
+    createPauseButton(this, () => {
+      if (this.state === 'playing') this.togglePause()
+    })
+
+    this.pauseDim = this.add
+      .rectangle(width / 2, height / 2, width, height, 0x020617, 0.55)
+      .setDepth(55)
+      .setVisible(false)
+    this.pauseLabel = this.add
+      .text(width / 2, height / 2, 'PAUSED\nP or tap Ⅱ to resume', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#f1f5f9',
+        align: 'center',
+        fontStyle: '700',
+      })
+      .setOrigin(0.5)
+      .setDepth(56)
+      .setVisible(false)
+
+    this.newBestBanner = this.add
+      .text(width / 2, 72, 'NEW BEST!', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#d4922a',
+        fontStyle: '700',
+        stroke: '#020617',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(48)
+      .setAlpha(0)
   }
 
   private createParticles() {
-    this.collectEmitter = this.add.particles(0, 0, 'spark', {
-      lifespan: 500,
-      speed: { min: 40, max: 160 },
-      scale: { start: 1, end: 0 },
-      tint: [EPOCH_COLORS.quantumHot, EPOCH_COLORS.bronzeBright],
-      emitting: false,
-      blendMode: 'ADD',
-      quantity: 12,
-    })
-    this.collectEmitter.setDepth(30)
+    this.collectEmitter = createSparkEmitter(this, 30)
+  }
 
-    this.hitEmitter = this.add.particles(0, 0, 'spark', {
-      lifespan: 600,
-      speed: { min: 80, max: 240 },
-      scale: { start: 1.2, end: 0 },
-      tint: [EPOCH_COLORS.danger, EPOCH_COLORS.bronze],
-      emitting: false,
-      blendMode: 'ADD',
-      quantity: 18,
-    })
-    this.hitEmitter.setDepth(30)
+  private togglePause() {
+    if (this.state !== 'playing') return
+    this.paused = !this.paused
+    this.pauseDim?.setVisible(this.paused)
+    this.pauseLabel?.setVisible(this.paused)
+    if (this.paused) {
+      stopTrail(this.trail)
+      this.physics.pause()
+    } else {
+      this.physics.resume()
+      startTrail(this.trail, this.falcon)
+    }
   }
 
   private createOverlay() {
@@ -582,6 +679,10 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private resetRun() {
     this.state = 'ready'
+    this.paused = false
+    this.physics.resume()
+    this.pauseDim?.setVisible(false)
+    this.pauseLabel?.setVisible(false)
     this.score = 0
     this.energy = EPOCH_RISE.maxEnergy
     this.heightAccumulator = 0
@@ -593,6 +694,9 @@ export class EpochRiseScene extends Phaser.Scene {
     this.boostZoneUntil = 0
     this.dashUntil = 0
     this.invulnUntil = 0
+    this.zonesFaded = false
+    this.touchUi?.setActive(true)
+    stopTrail(this.trail)
 
     this.entities.clear(true, true)
     this.falcon.setPosition(this.scale.width / 2, EPOCH_RISE.playerY)
@@ -608,22 +712,28 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   private beginRun() {
+    if (this.waitingHowTo) return
     this.state = 'playing'
     this.hideOverlay()
     this.nextSpawnAt = this.time.now + 600
-    this.hudHint.setText('Hold energy · snag orbs · dash through tight gaps')
+    this.hudHint.setText('Hold energy · snag orbs · dash gaps · P pause')
+    startTrail(this.trail, this.falcon)
     this.emitState('playing')
   }
 
   private handleGameOver() {
-    if (this.state !== 'playing') return
+    if (this.state !== 'playing' || this.paused) return
     this.state = 'gameover'
     this.falcon.setVelocity(0, 0)
+    stopTrail(this.trail)
 
-    this.hitEmitter.setPosition(this.falcon.x, this.falcon.y)
-    this.hitEmitter.explode(28)
-    this.cameras.main.shake(320, 0.014)
-    this.cameras.main.flash(150, 248, 113, 113, false)
+    playDeathJuice(
+      this,
+      this.falcon.x,
+      this.falcon.y,
+      this.difficulty,
+      this.hitEmitter,
+    )
 
     this.tweens.add({
       targets: this.falconVisual,
@@ -633,10 +743,12 @@ export class EpochRiseScene extends Phaser.Scene {
       ease: 'Quad.easeOut',
     })
 
-    this.showOverlay('gameover')
-    this.emitState('gameover')
-    this.emitScore(this.score)
-    this.emitEnergy()
+    this.time.delayedCall(340, () => {
+      this.showOverlay('gameover')
+      this.emitState('gameover')
+      this.emitScore(this.score)
+      this.emitEnergy()
+    })
   }
 
   // ── movement ───────────────────────────────────────────
@@ -792,28 +904,66 @@ export class EpochRiseScene extends Phaser.Scene {
   private addScore(amount: number) {
     const prev = this.score
     this.score += amount
-    if (this.score !== prev) {
-      this.hudScore.setText(`SCORE  ${this.score}`)
-      if (
-        this.score >= EPOCH_RISE_REWARD_THRESHOLD &&
-        prev < EPOCH_RISE_REWARD_THRESHOLD
-      ) {
-        this.hudScore.setColor('#d4922a')
-        this.cameras.main.flash(80, 208, 146, 42, false)
-      }
-      this.emitScore(this.score)
+    if (this.score === prev) return
+
+    this.hudScore.setText(`SCORE  ${this.score}`)
+    if (
+      this.score >= EPOCH_RISE_REWARD_THRESHOLD &&
+      prev < EPOCH_RISE_REWARD_THRESHOLD
+    ) {
+      this.hudScore.setColor('#d4922a')
+      this.cameras.main.flash(90, 208, 146, 42, false)
+      floatScoreText(this, this.falcon.x, this.falcon.y - 40, 'THRESHOLD!', '#d4922a', {
+        fontSize: '18px',
+      })
     }
+    if (this.score > this.bestScore) {
+      const was = this.bestScore
+      this.bestScore = this.score
+      if (was > 0) {
+        this.newBestBanner.setAlpha(0).setScale(0.7).setY(72)
+        this.tweens.add({
+          targets: this.newBestBanner,
+          alpha: 1,
+          scale: 1.1,
+          duration: 180,
+          ease: 'Back.easeOut',
+          onComplete: () => {
+            this.tweens.add({
+              targets: this.newBestBanner,
+              alpha: 0,
+              y: 48,
+              delay: 700,
+              duration: 350,
+            })
+          },
+        })
+      }
+    }
+    this.tweens.add({
+      targets: this.hudScore,
+      scale: 1.08,
+      duration: 70,
+      yoyo: true,
+    })
+    this.emitScore(this.score)
   }
 
   private refreshEnergyBar() {
     const pct = this.energy / EPOCH_RISE.maxEnergy
-    const barW = 220
+    const barW = 240
     this.energyFill.width = Math.max(2, barW * pct)
-    this.energyFill.setFillStyle(
-      pct < 0.28 ? EPOCH_COLORS.energyLow : EPOCH_COLORS.energy,
-    )
+    const low = pct < 0.28
+    this.energyFill.setFillStyle(low ? EPOCH_COLORS.energyLow : EPOCH_COLORS.energy)
     this.energyLabel.setText(`ENERGY  ${Math.ceil(this.energy)}`)
-    this.energyLabel.setColor(pct < 0.28 ? '#f1f5f9' : '#020617')
+    this.energyLabel.setColor(low ? '#f1f5f9' : '#020617')
+    if (this.energyGlow) {
+      this.energyGlow.setFillStyle(
+        low ? EPOCH_COLORS.danger : EPOCH_COLORS.quantum,
+        low ? 0.18 : 0.12,
+      )
+      this.energyGlow.setScale(1 + (1 - pct) * 0.04)
+    }
   }
 
   private refreshHudStatus() {
@@ -825,22 +975,7 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   private floatText(x: number, y: number, text: string, color: string) {
-    const t = this.add
-      .text(x, y, text, {
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '14px',
-        color,
-        fontStyle: '700',
-      })
-      .setOrigin(0.5)
-      .setDepth(35)
-    this.tweens.add({
-      targets: t,
-      y: y - 40,
-      alpha: 0,
-      duration: 600,
-      onComplete: () => t.destroy(),
-    })
+    floatScoreText(this, x, y, text, color)
   }
 
   // ── entities ───────────────────────────────────────────
@@ -904,7 +1039,8 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private spawnInterference() {
     const w = Phaser.Math.Between(90, 160)
-    this.spawnAtTop('interference', w, 52, { kind: 'interference' })
+    const obj = this.spawnAtTop('interference', w, 52, { kind: 'interference' })
+    attachQuantumPulse(this, obj)
   }
 
   private spawnMover() {
@@ -1006,7 +1142,8 @@ export class EpochRiseScene extends Phaser.Scene {
         this.changeEnergy(EPOCH_RISE.orbEnergy)
         this.addScore(EPOCH_RISE.orbScore)
         this.collectEmitter.setPosition(ent.x, ent.y)
-        this.collectEmitter.explode(10)
+        this.collectEmitter.explode(12)
+        flashCleanPass(this, 0.08)
         this.floatText(ent.x, ent.y, `+${EPOCH_RISE.orbScore}`, '#22d3ee')
         ent.destroy()
         break
@@ -1017,7 +1154,8 @@ export class EpochRiseScene extends Phaser.Scene {
         this.changeEnergy(EPOCH_RISE.clusterOrbEnergy)
         this.addScore(EPOCH_RISE.clusterOrbScore)
         this.collectEmitter.setPosition(ent.x, ent.y)
-        this.collectEmitter.explode(14)
+        this.collectEmitter.explode(16)
+        flashCleanPass(this)
         this.floatText(ent.x, ent.y, `+${EPOCH_RISE.clusterOrbScore}`, '#d4922a')
         ent.destroy()
         break

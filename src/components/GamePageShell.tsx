@@ -1,31 +1,21 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useParentCommunication } from '../hooks/useParentCommunication'
 
 type GamePageShellProps = {
-  /** Game slug used in SCORE_UPDATE / CLAIM_REQUEST messages. */
   gameSlug: string
   title: string
   tagline: string
   description: string
   scoreLabel: string
   gameCanvas: ReactNode
-  /** Live score from gameplay. */
   score?: number
-  /** Session best (optional display). */
   bestScore?: number
-  /**
-   * Score sent with CLAIM_REQUEST (defaults to live score).
-   * Use session best so a restart after threshold still claims the earned score.
-   */
   claimScore?: number
-  /** When true (and wallet connected), Claim posts CLAIM_REQUEST. */
   claimEnabled?: boolean
-  /** Points needed to unlock claim (shown in UI when set). */
   rewardThreshold?: number
   statusTitle?: string
   statusBody?: string
   gameStateLabel?: string
-  /** Hide scaffold “Launch preview / roadmap” actions for live games. */
   compactActions?: boolean
 }
 
@@ -48,12 +38,12 @@ export function GamePageShell({
 }: GamePageShellProps) {
   const { isConnected, isEmbedded, sendClaimRequest } = useParentCommunication()
   const [playFocus, setPlayFocus] = useState(false)
+  const [showNewBest, setShowNewBest] = useState(false)
+  const prevBest = useRef(0)
   const scoreForClaim = claimScore ?? score
 
   const handleClaim = useCallback(() => {
-    if (!claimEnabled || !isConnected) {
-      return
-    }
+    if (!claimEnabled || !isConnected) return
     sendClaimRequest(gameSlug, scoreForClaim)
   }, [claimEnabled, gameSlug, isConnected, scoreForClaim, sendClaimRequest])
 
@@ -63,29 +53,33 @@ export function GamePageShell({
     rewardThreshold !== undefined
       ? progressScore >= rewardThreshold
       : claimEnabled
+  const progressPct =
+    rewardThreshold !== undefined
+      ? Math.min(100, (progressScore / rewardThreshold) * 100)
+      : 0
 
-  const defaultStatusBody = isEmbedded
-    ? 'Embedded mode: wallet + claims sync via the parent portal.'
-    : 'Standalone mode: mock wallet is available for local development.'
+  // Session "New Best!" toast when React-side best climbs
+  useEffect(() => {
+    if (bestScore === undefined) return
+    if (bestScore > prevBest.current && prevBest.current > 0) {
+      setShowNewBest(true)
+      const t = window.setTimeout(() => setShowNewBest(false), 1800)
+      prevBest.current = bestScore
+      return () => window.clearTimeout(t)
+    }
+    if (bestScore > prevBest.current) prevBest.current = bestScore
+  }, [bestScore])
 
-  // Full-screen play focus: hide site chrome, expand game to the viewport
   useEffect(() => {
     if (!playFocus) return
-
     document.body.classList.add('play-focus-open')
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setPlayFocus(false)
-      }
+      if (event.key === 'Escape') setPlayFocus(false)
     }
     window.addEventListener('keydown', onKey)
-
-    // Nudge layout so Phaser Scale.FIT remeasures the parent
     window.dispatchEvent(new Event('resize'))
-
     return () => {
       document.body.classList.remove('play-focus-open')
       document.body.style.overflow = prevOverflow
@@ -104,10 +98,24 @@ export function GamePageShell({
           ? `Reach ${rewardThreshold} to claim`
           : 'Claim Reward'
 
+  const claimClass = `claim-button${canClaim ? ' claim-button--ready claim-button--pulse' : ''}${
+    thresholdMet && !canClaim ? ' claim-button--threshold' : ''
+  }`
+
+  const defaultStatusBody = isEmbedded
+    ? 'Embedded mode: wallet + claims sync via the parent portal.'
+    : 'Standalone mode: mock wallet is available for local development.'
+
   return (
     <section
       className={`page-panel page-panel--game${playFocus ? ' page-panel--play-focus' : ''}`}
     >
+      {showNewBest ? (
+        <div className="new-best-toast" role="status">
+          New Best!
+        </div>
+      ) : null}
+
       {!playFocus ? (
         <header className="game-page-header">
           <div className="game-page-header__copy">
@@ -158,11 +166,11 @@ export function GamePageShell({
             )}
             <div className="play-chrome__score">
               <span className="game-meta__label">{scoreLabel}</span>
-              <strong>{score}</strong>
+              <strong className="play-chrome__score-value">{score}</strong>
             </div>
             <button
               type="button"
-              className={`claim-button play-chrome__claim${canClaim ? ' claim-button--ready' : ''}`}
+              className={`${claimClass} play-chrome__claim`}
               disabled={!canClaim}
               onClick={handleClaim}
             >
@@ -184,14 +192,17 @@ export function GamePageShell({
               <p className="page-copy">{statusBody ?? defaultStatusBody}</p>
             </div>
 
-            <div className="score-display">
+            <div className="score-display score-display--premium">
               <span className="game-meta__label">{scoreLabel}</span>
               <strong>{score}</strong>
               {bestScore !== undefined && bestScore > 0 ? (
                 <p className="page-copy score-best">Best this session: {bestScore}</p>
               ) : null}
               {rewardThreshold !== undefined ? (
-                <div className="threshold-meter" aria-label="Reward threshold progress">
+                <div
+                  className={`threshold-meter${thresholdMet ? ' threshold-meter--complete' : ''}`}
+                  aria-label="Reward threshold progress"
+                >
                   <div className="threshold-meter__header">
                     <span>Claim threshold</span>
                     <span>
@@ -201,27 +212,25 @@ export function GamePageShell({
                   <div className="threshold-meter__track">
                     <div
                       className="threshold-meter__fill"
-                      style={{
-                        width: `${Math.min(100, (progressScore / rewardThreshold) * 100)}%`,
-                      }}
+                      style={{ width: `${progressPct}%` }}
                     />
                   </div>
                   <p className="page-copy">
                     {thresholdMet
-                      ? 'Threshold reached — claim is available when your wallet is connected.'
+                      ? 'Threshold reached — claim when your wallet is connected.'
                       : 'Score keeps counting for the epoch leaderboard after the threshold.'}
                   </p>
                 </div>
               ) : (
                 <p className="page-copy">
-                  Score tracking will plug into wallet rewards once gameplay is live.
+                  Score tracking plugs into wallet rewards via the portal.
                 </p>
               )}
             </div>
 
             <button
               type="button"
-              className={`claim-button${canClaim ? ' claim-button--ready' : ''}`}
+              className={claimClass}
               disabled={!canClaim}
               onClick={handleClaim}
             >

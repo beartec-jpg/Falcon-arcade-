@@ -1,7 +1,32 @@
 import Phaser from 'phaser'
 import {
+  attachQuantumPulse,
+  createDataStream,
+  createDeathEmitter,
+  createHowToOverlay,
+  createParallaxStarfield,
+  createPauseButton,
+  createPlayerTrail,
+  createSparkEmitter,
+  createTouchAffordances,
+  drawDataStream,
+  ensureJuiceTextures,
+  flashCleanPass,
+  floatScoreText,
+  hasSeenHowTo,
+  markHowToSeen,
+  nearMissSpark,
+  playDeathJuice,
+  startTrail,
+  stopTrail,
+  updateParallaxStarfield,
+  type StarLayer,
+  type TouchZonePair,
+} from '../../utils/gameJuice'
+import {
   LEDGER_RUNNER,
   LEDGER_RUNNER_REWARD_THRESHOLD,
+  LEDGER_RUNNER_SLUG,
   RUNNER_COLORS,
   type LedgerRunnerBridge,
   type LedgerRunnerGameState,
@@ -23,13 +48,17 @@ type HazardMeta = {
  */
 export class LedgerRunnerScene extends Phaser.Scene {
   private state: LedgerRunnerGameState = 'ready'
+  private paused = false
+  private waitingHowTo = false
   private score = 0
+  private bestScore = 0
   private combo = 0
   private distanceAccumulator = 0
   private scrollSpeed: number = LEDGER_RUNNER.baseScrollSpeed
   private difficulty = 0
   private nextSpawnAt = 0
   private elapsedPlayMs = 0
+  private streamScroll = 0
 
   private player!: Phaser.Physics.Arcade.Image
   private playerVisual!: Phaser.GameObjects.Container
@@ -48,17 +77,25 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private keyDown!: Phaser.Input.Keyboard.Key
   private keySpace!: Phaser.Input.Keyboard.Key
   private keyZ!: Phaser.Input.Keyboard.Key
+  private keyP!: Phaser.Input.Keyboard.Key
 
-  private stars!: Phaser.GameObjects.Graphics
-  private starOffsets: { x: number; y: number; s: number; a: number }[] = []
+  private starLayers: StarLayer[] = []
+  private dataStream!: Phaser.GameObjects.Graphics
   private groundGfx!: Phaser.GameObjects.Graphics
   private groundScroll = 0
+  private touchUi!: TouchZonePair
+  private zonesFaded = false
 
   private hudScore!: Phaser.GameObjects.Text
   private hudCombo!: Phaser.GameObjects.Text
   private hudHint!: Phaser.GameObjects.Text
+  private pauseDim!: Phaser.GameObjects.Rectangle
+  private pauseLabel!: Phaser.GameObjects.Text
+  private newBestBanner!: Phaser.GameObjects.Text
   private overlay!: Phaser.GameObjects.Container
   private deathEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
+  private trail!: Phaser.GameObjects.Particles.ParticleEmitter
   private runBob = 0
 
   constructor() {
@@ -72,8 +109,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(RUNNER_COLORS.bgHex)
     this.physics.world.gravity.y = LEDGER_RUNNER.gravityY
     this.physics.world.setBounds(0, 0, width, height)
+    ensureJuiceTextures(this)
 
-    this.createStarfield(width)
+    this.starLayers = createParallaxStarfield(this, width, this.groundY)
+    this.dataStream = createDataStream(this, 1)
     this.createGround(width)
     this.createTextures()
 
@@ -82,6 +121,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       immovable: true,
     })
 
+    this.trail = createPlayerTrail(this, 9)
     this.playerVisual = this.createRunnerVisual()
     this.player = this.physics.add.image(
       LEDGER_RUNNER.playerX,
@@ -102,20 +142,75 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this,
     )
 
+    this.touchUi = createTouchAffordances(this, 'vertical')
+    // Bottom zone is slide, top is jump — relabel
+    this.touchUi.labelA.setText('↑  JUMP')
+    this.touchUi.labelB.setText('↓  SLIDE')
+
     this.setupInput()
     this.createHud(width, height)
-    this.createDeathParticles()
+    this.deathEmitter = createDeathEmitter(this)
+    this.sparkEmitter = createSparkEmitter(this)
     this.resetRun()
-    this.showOverlay('ready')
-    this.emitState('ready')
+
+    if (!hasSeenHowTo(LEDGER_RUNNER_SLUG)) {
+      this.waitingHowTo = true
+      createHowToOverlay(
+        this,
+        'Ledger Runner',
+        [
+          'You run automatically.',
+          'Tap / Space to jump (double-jump in air).',
+          'Tap bottom / ↓ to slide under bad ledgers.',
+          `Chain cleans for combos. Claim at ${LEDGER_RUNNER_REWARD_THRESHOLD}.`,
+        ],
+        () => {
+          markHowToSeen(LEDGER_RUNNER_SLUG)
+          this.waitingHowTo = false
+          this.showOverlay('ready')
+          this.emitState('ready')
+        },
+      )
+    } else {
+      this.showOverlay('ready')
+      this.emitState('ready')
+    }
     this.emitScore(0)
   }
 
   update(_time: number, delta: number) {
-    this.scrollStarfield(delta)
+    const scrollRef =
+      this.state === 'playing' && !this.paused ? this.scrollSpeed : 40
+    updateParallaxStarfield(
+      this.starLayers,
+      this.scale.width,
+      this.groundY,
+      scrollRef,
+      delta,
+      'x',
+    )
+    this.streamScroll += scrollRef * (delta / 1000) * 0.4
+    drawDataStream(
+      this.dataStream,
+      this.scale.width,
+      this.groundY,
+      this.streamScroll,
+      'horizontal',
+    )
     this.drawGround(delta)
     this.syncPlayerVisual(delta)
     this.updateGrounded()
+
+    if (this.waitingHowTo) return
+
+    if (
+      this.keyP &&
+      Phaser.Input.Keyboard.JustDown(this.keyP) &&
+      this.state === 'playing'
+    ) {
+      this.togglePause()
+    }
+    if (this.paused) return
 
     if (this.state === 'ready') {
       this.idleBob(delta)
@@ -263,38 +358,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
     return c
   }
 
-  private createStarfield(width: number) {
-    this.stars = this.add.graphics().setDepth(0)
-    this.starOffsets = []
-    for (let i = 0; i < 40; i += 1) {
-      this.starOffsets.push({
-        x: Phaser.Math.Between(0, width),
-        y: Phaser.Math.Between(0, this.groundY - 40),
-        s: Phaser.Math.FloatBetween(0.5, 2),
-        a: Phaser.Math.FloatBetween(0.2, 0.75),
-      })
-    }
-    this.drawStars()
-  }
-
-  private drawStars() {
-    const { width } = this.scale
-    this.stars.clear()
-    for (const star of this.starOffsets) {
-      this.stars.fillStyle(RUNNER_COLORS.star, star.a)
-      this.stars.fillCircle(((star.x % width) + width) % width, star.y, star.s)
-    }
-  }
-
-  private scrollStarfield(delta: number) {
-    const drift =
-      (this.state === 'playing' ? this.scrollSpeed : 50) * (delta / 1000) * 0.3
-    for (const star of this.starOffsets) {
-      star.x -= drift * (0.5 + star.s * 0.25)
-    }
-    this.drawStars()
-  }
-
   private createGround(width: number) {
     this.groundGfx = this.add.graphics().setDepth(3)
     // Solid ground fill
@@ -347,9 +410,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.keyDown = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN)
       this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
       this.keyZ = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z)
+      this.keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P)
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.waitingHowTo || this.paused) return
       if (this.state === 'ready') {
         this.beginRun()
         return
@@ -360,71 +425,117 @@ export class LedgerRunnerScene extends Phaser.Scene {
         return
       }
 
+      if (!this.zonesFaded) {
+        this.zonesFaded = true
+        this.time.delayedCall(1400, () => this.touchUi.setActive(false))
+      }
+
       // Top 70% = jump, bottom 30% = slide
       if (pointer.y > this.scale.height * 0.72) {
+        this.touchUi.pulse('b')
         this.startSlide()
       } else {
+        this.touchUi.pulse('a')
         this.tryJump()
       }
     })
   }
 
   private createHud(width: number, height: number) {
+    this.add
+      .rectangle(12, 12, 168, 58, 0x0f172a, 0.82)
+      .setOrigin(0, 0)
+      .setStrokeStyle(1, RUNNER_COLORS.bronze, 0.35)
+      .setDepth(30)
+
     this.hudScore = this.add
-      .text(20, 16, 'SCORE  0', {
+      .text(22, 18, 'SCORE  0', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '22px',
+        fontSize: '20px',
         color: '#f1f5f9',
         fontStyle: '700',
       })
-      .setDepth(30)
+      .setDepth(31)
 
     this.add
-      .text(20, 44, `THRESHOLD  ${LEDGER_RUNNER_REWARD_THRESHOLD}`, {
+      .text(22, 44, `THRESHOLD  ${LEDGER_RUNNER_REWARD_THRESHOLD}`, {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '12px',
+        fontSize: '11px',
         color: '#94a3b8',
         fontStyle: '600',
       })
-      .setDepth(30)
+      .setDepth(31)
 
     this.hudCombo = this.add
-      .text(width - 20, 20, '', {
+      .text(width - 56, 22, '', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '18px',
+        fontSize: '16px',
         color: '#d4922a',
         fontStyle: '700',
       })
       .setOrigin(1, 0)
-      .setDepth(30)
+      .setDepth(31)
 
     this.hudHint = this.add
       .text(
         width / 2,
-        height - 28,
-        'SPACE / TAP jump  ·  ↓ / bottom tap slide  ·  double-jump in air',
+        height - 24,
+        'SPACE jump  ·  ↓ slide  ·  P pause  ·  double-jump',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: '13px',
+          fontSize: '12px',
           color: '#94a3b8',
         },
       )
       .setOrigin(0.5)
       .setDepth(30)
+
+    createPauseButton(this, () => {
+      if (this.state === 'playing') this.togglePause()
+    })
+
+    this.pauseDim = this.add
+      .rectangle(width / 2, height / 2, width, height, 0x020617, 0.55)
+      .setDepth(55)
+      .setVisible(false)
+    this.pauseLabel = this.add
+      .text(width / 2, height / 2, 'PAUSED\nP or tap Ⅱ to resume', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#f1f5f9',
+        align: 'center',
+        fontStyle: '700',
+      })
+      .setOrigin(0.5)
+      .setDepth(56)
+      .setVisible(false)
+
+    this.newBestBanner = this.add
+      .text(width / 2, 72, 'NEW BEST!', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '22px',
+        color: '#d4922a',
+        fontStyle: '700',
+        stroke: '#020617',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(48)
+      .setAlpha(0)
   }
 
-  private createDeathParticles() {
-    this.deathEmitter = this.add.particles(0, 0, 'spark', {
-      lifespan: 700,
-      speed: { min: 90, max: 280 },
-      scale: { start: 1.3, end: 0 },
-      alpha: { start: 1, end: 0 },
-      tint: [RUNNER_COLORS.bronzeBright, RUNNER_COLORS.bronze, RUNNER_COLORS.quantum],
-      emitting: false,
-      blendMode: 'ADD',
-      quantity: 28,
-    })
-    this.deathEmitter.setDepth(20)
+  private togglePause() {
+    if (this.state !== 'playing') return
+    this.paused = !this.paused
+    this.pauseDim?.setVisible(this.paused)
+    this.pauseLabel?.setVisible(this.paused)
+    if (this.paused) {
+      stopTrail(this.trail)
+      this.physics.pause()
+    } else {
+      this.physics.resume()
+      startTrail(this.trail, this.player)
+    }
   }
 
   private createOverlay() {
@@ -552,6 +663,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private resetRun() {
     this.state = 'ready'
+    this.paused = false
+    this.physics.resume()
+    this.pauseDim?.setVisible(false)
+    this.pauseLabel?.setVisible(false)
     this.score = 0
     this.combo = 0
     this.distanceAccumulator = 0
@@ -562,6 +677,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.jumpsRemaining = 2
     this.isSliding = false
     this.slideUntil = 0
+    this.zonesFaded = false
+    this.touchUi?.setActive(true)
+    stopTrail(this.trail)
 
     this.hazards.clear(true, true)
     this.endSlide()
@@ -579,39 +697,47 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private beginRun() {
+    if (this.waitingHowTo) return
     this.state = 'playing'
     this.hideOverlay()
     this.nextSpawnAt = this.time.now + 800
     this.jumpsRemaining = 2
-    this.hudHint.setText('Jump spikes · slide bad ledgers · chain combos')
+    this.hudHint.setText('Jump spikes · slide ledgers · chain combos · P pause')
+    startTrail(this.trail, this.player)
     this.emitState('playing')
   }
 
   private handleCrash() {
-    if (this.state !== 'playing') return
+    if (this.state !== 'playing' || this.paused) return
 
     this.state = 'gameover'
     this.player.setVelocity(0, 0)
     this.combo = 0
     this.hudCombo.setText('')
+    stopTrail(this.trail)
 
-    this.deathEmitter.setPosition(this.player.x, this.player.y)
-    this.deathEmitter.explode(30)
-    this.cameras.main.shake(300, 0.014)
-    this.cameras.main.flash(140, 192, 120, 56, false)
+    playDeathJuice(
+      this,
+      this.player.x,
+      this.player.y,
+      this.difficulty,
+      this.deathEmitter,
+    )
 
     this.tweens.add({
       targets: this.playerVisual,
-      alpha: 0.3,
-      angle: -25,
+      alpha: 0.25,
+      angle: -28,
       y: this.player.y + 8,
       duration: 280,
       ease: 'Quad.easeOut',
     })
 
-    this.showOverlay('gameover')
-    this.emitState('gameover')
-    this.emitScore(this.score)
+    this.time.delayedCall(340, () => {
+      this.showOverlay('gameover')
+      this.emitState('gameover')
+      this.emitScore(this.score)
+    })
   }
 
   // ── input helpers ──────────────────────────────────────
@@ -786,17 +912,51 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private addScore(amount: number) {
     const prev = this.score
     this.score += amount
-    if (this.score !== prev) {
-      this.hudScore.setText(`SCORE  ${this.score}`)
-      if (
-        this.score >= LEDGER_RUNNER_REWARD_THRESHOLD &&
-        prev < LEDGER_RUNNER_REWARD_THRESHOLD
-      ) {
-        this.hudScore.setColor('#d4922a')
-        this.cameras.main.flash(80, 208, 146, 42, false)
-      }
-      this.emitScore(this.score)
+    if (this.score === prev) return
+
+    this.hudScore.setText(`SCORE  ${this.score}`)
+    if (
+      this.score >= LEDGER_RUNNER_REWARD_THRESHOLD &&
+      prev < LEDGER_RUNNER_REWARD_THRESHOLD
+    ) {
+      this.hudScore.setColor('#d4922a')
+      this.cameras.main.flash(90, 208, 146, 42, false)
+      floatScoreText(this, this.player.x, this.player.y - 40, 'THRESHOLD!', '#d4922a', {
+        fontSize: '18px',
+      })
     }
+    if (this.score > this.bestScore) {
+      const was = this.bestScore
+      this.bestScore = this.score
+      if (was > 0) this.flashNewBest()
+    }
+    this.tweens.add({
+      targets: this.hudScore,
+      scale: 1.08,
+      duration: 70,
+      yoyo: true,
+    })
+    this.emitScore(this.score)
+  }
+
+  private flashNewBest() {
+    this.newBestBanner.setAlpha(0).setScale(0.7).setY(72)
+    this.tweens.add({
+      targets: this.newBestBanner,
+      alpha: 1,
+      scale: 1.1,
+      duration: 180,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: this.newBestBanner,
+          alpha: 0,
+          y: 48,
+          delay: 700,
+          duration: 350,
+        })
+      },
+    })
   }
 
   private registerClear(perfect: boolean) {
@@ -807,21 +967,16 @@ export class LedgerRunnerScene extends Phaser.Scene {
     }
     bonus += Math.max(0, this.combo - 1) * LEDGER_RUNNER.comboStepBonus
     this.addScore(bonus)
-    this.showComboFeedback(perfect)
+    this.showComboFeedback(perfect, bonus)
   }
 
-  private showComboFeedback(perfect: boolean) {
-    if (this.combo <= 1 && !perfect) {
-      this.hudCombo.setText('')
-      return
-    }
-
+  private showComboFeedback(perfect: boolean, bonus: number) {
     const label = perfect
       ? `PERFECT  x${this.combo}`
       : this.combo > 1
         ? `COMBO  x${this.combo}`
         : 'CLEAN'
-    this.hudCombo.setText(label)
+    this.hudCombo.setText(this.combo > 1 || perfect ? label : '')
     this.hudCombo.setScale(1.25)
     this.tweens.add({
       targets: this.hudCombo,
@@ -830,21 +985,26 @@ export class LedgerRunnerScene extends Phaser.Scene {
       ease: 'Back.easeOut',
     })
 
-    const pop = this.add
-      .text(this.player.x + 40, this.player.y - 40, perfect ? '+PERFECT' : '+CLEAR', {
-        fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '14px',
-        color: perfect ? '#22d3ee' : '#d4922a',
-        fontStyle: '700',
-      })
-      .setDepth(25)
-    this.tweens.add({
-      targets: pop,
-      y: pop.y - 36,
-      alpha: 0,
-      duration: 520,
-      onComplete: () => pop.destroy(),
-    })
+    if (perfect) {
+      flashCleanPass(this)
+      nearMissSpark(this, this.sparkEmitter, this.player.x + 24, this.player.y - 10)
+      floatScoreText(
+        this,
+        this.player.x + 36,
+        this.player.y - 44,
+        `+${bonus} PERFECT`,
+        '#22d3ee',
+      )
+    } else {
+      flashCleanPass(this, 0.08)
+      floatScoreText(
+        this,
+        this.player.x + 36,
+        this.player.y - 40,
+        this.combo > 1 ? `+${bonus} COMBO` : `+${bonus} CLEAN`,
+        '#d4922a',
+      )
+    }
   }
 
   // ── hazards ────────────────────────────────────────────
@@ -901,6 +1061,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       dangerBottom: this.groundY,
     }
     spike.setData('meta', meta)
+    attachQuantumPulse(this, spike)
   }
 
   private spawnBarrier() {
@@ -956,6 +1117,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       dangerBottom: baseY + 40,
     }
     floater.setData('meta', meta)
+    attachQuantumPulse(this, floater)
   }
 
   private updateHazards(delta: number) {
