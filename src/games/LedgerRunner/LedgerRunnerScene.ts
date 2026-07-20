@@ -113,12 +113,19 @@ export class LedgerRunnerScene extends Phaser.Scene {
     super('LedgerRunnerScene')
   }
 
+  /** Scale design-time values to the live playfield height. */
+  private hScale() {
+    return this.scale.height / LEDGER_RUNNER.designHeight
+  }
+
   create() {
     const { width, height } = this.scale
-    this.groundY = LEDGER_RUNNER.groundY
+    // Keep ground near the bottom of whatever aspect we're using
+    this.groundY = height * (LEDGER_RUNNER.groundY / LEDGER_RUNNER.designHeight)
 
     this.cameras.main.setBackgroundColor(RUNNER_COLORS.bgHex)
-    this.physics.world.gravity.y = LEDGER_RUNNER.gravityY
+    // Scale gravity with height so jump arcs feel the same on tall screens
+    this.physics.world.gravity.y = LEDGER_RUNNER.gravityY * this.hScale()
     this.physics.world.setBounds(0, 0, width, height)
     ensureJuiceTextures(this)
 
@@ -774,9 +781,12 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (this.jumpsRemaining <= 0) return
 
     const isDouble = this.jumpsRemaining === 1 && !this.onGround
-    const vy = isDouble
-      ? LEDGER_RUNNER.doubleJumpVelocity
-      : LEDGER_RUNNER.jumpVelocity
+    // Scale jump with playfield so arcs clear scaled spikes on tall phones
+    const s = this.hScale()
+    const vy =
+      (isDouble
+        ? LEDGER_RUNNER.doubleJumpVelocity
+        : LEDGER_RUNNER.jumpVelocity) * s
 
     this.player.setVelocityY(vy)
     this.jumpsRemaining -= 1
@@ -1030,17 +1040,37 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.time.now + interval * Phaser.Math.FloatBetween(0.88, 1.12)
   }
 
+  /**
+   * setSize is in texture units then scaled — never pass display pixels.
+   */
+  private fitHazardBody(
+    obj: Phaser.Physics.Arcade.Image,
+    displayW: number,
+    displayH: number,
+    hitScaleX = 0.72,
+    hitScaleY = 0.82,
+  ) {
+    obj.setDisplaySize(displayW, displayH)
+    const body = obj.body as Phaser.Physics.Arcade.Body
+    const frameW = obj.frame.width
+    const frameH = obj.frame.height
+    const sourceW = frameW * hitScaleX
+    const sourceH = frameH * hitScaleY
+    body.setSize(sourceW, sourceH)
+    body.setOffset((frameW - sourceW) / 2, (frameH - sourceH) / 2)
+    body.setAllowGravity(false)
+    body.updateFromGameObject()
+  }
+
   private spawnSpike() {
+    const s = this.hScale()
     const x = this.scale.width + 40
-    const h = 34
-    const w = 38
+    // Spikes stay jumpable — not too tall relative to jump arc
+    const h = 30 * s
+    const w = 36
     const y = this.groundY - h / 2
     const spike = this.hazards.create(x, y, 'spike') as Phaser.Physics.Arcade.Image
-    spike.setDisplaySize(w, h)
-    spike.refreshBody()
-    const body = spike.body as Phaser.Physics.Arcade.Body
-    body.setSize(w * 0.7, h * 0.85)
-    body.setAllowGravity(false)
+    this.fitHazardBody(spike, w, h, 0.65, 0.78)
     spike.setImmovable(true)
     spike.setDepth(6)
 
@@ -1056,20 +1086,17 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private spawnBarrier() {
     // Tall ledger hanging with crawl space under it — must slide
+    const s = this.hScale()
     const x = this.scale.width + 50
-    const gap = Phaser.Math.Linear(36, 28, this.difficulty) // slide gap height
-    const h = Phaser.Math.Linear(150, 190, this.difficulty)
+    // Slide gap must clear standing-ish crouch height with margin
+    const gap = Phaser.Math.Linear(42 * s, 34 * s, this.difficulty)
+    const h = Phaser.Math.Linear(140 * s, 175 * s, this.difficulty)
     const w = 46
-    // Barrier hangs from above ground leaving gap at bottom
     const bottom = this.groundY - gap
     const y = bottom - h / 2
 
     const barrier = this.hazards.create(x, y, 'barrier') as Phaser.Physics.Arcade.Image
-    barrier.setDisplaySize(w, h)
-    barrier.refreshBody()
-    const body = barrier.body as Phaser.Physics.Arcade.Body
-    body.setSize(w * 0.85, h * 0.95)
-    body.setAllowGravity(false)
+    this.fitHazardBody(barrier, w, h, 0.72, 0.88)
     barrier.setImmovable(true)
     barrier.setDepth(6)
 
@@ -1083,28 +1110,32 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private spawnFloater() {
+    const s = this.hScale()
     const x = this.scale.width + 40
-    const size = 34
-    // Oscillates at jump height — time the jump
-    const baseY = this.groundY - Phaser.Math.Between(70, 120)
+    const size = 32 * s
+    // Sit in mid jump band — not unreasonably high on tall screens
+    const baseY = this.groundY - Phaser.Math.Between(Math.floor(75 * s), Math.floor(110 * s))
 
     const floater = this.hazards.create(x, baseY, 'floater') as Phaser.Physics.Arcade.Image
     floater.setDisplaySize(size, size)
-    floater.refreshBody()
     const body = floater.body as Phaser.Physics.Arcade.Body
-    body.setCircle(size * 0.4)
+    const frameW = floater.frame.width
+    const sourceR = frameW * 0.35
+    body.setCircle(sourceR)
+    body.setOffset((frameW - sourceR * 2) / 2, (frameW - sourceR * 2) / 2)
     body.setAllowGravity(false)
+    body.updateFromGameObject()
     floater.setImmovable(true)
     floater.setDepth(6)
     floater.setData('floatPhase', Math.random() * Math.PI * 2)
     floater.setData('floatBase', baseY)
-    floater.setData('floatAmp', Phaser.Math.Between(18, 36))
+    floater.setData('floatAmp', Phaser.Math.Between(Math.floor(14 * s), Math.floor(28 * s)))
 
     const meta: HazardMeta = {
       kind: 'floater',
       scored: false,
-      dangerTop: baseY - 40,
-      dangerBottom: baseY + 40,
+      dangerTop: baseY - 36 * s,
+      dangerBottom: baseY + 36 * s,
     }
     floater.setData('meta', meta)
     attachQuantumPulse(this, floater)

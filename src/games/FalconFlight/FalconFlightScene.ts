@@ -606,9 +606,11 @@ export class FalconFlightScene extends Phaser.Scene {
   private applyVerticalMovement() {
     const intent = this.verticalIntent()
     if (intent !== 0) this.fadeTouchZonesOnce()
-    this.falcon.setVelocityY(intent * FALCON_FLIGHT.verticalSpeed)
+    // Scale steer speed with playfield height so tall phones stay responsive
+    const speed = FALCON_FLIGHT.verticalSpeed * this.hScale()
+    this.falcon.setVelocityY(intent * speed)
 
-    const pad = 28
+    const pad = 28 * this.hScale()
     const body = this.falcon.body as Phaser.Physics.Arcade.Body
     if (this.falcon.y < pad) {
       this.falcon.y = pad
@@ -719,11 +721,18 @@ export class FalconFlightScene extends Phaser.Scene {
 
   // ── obstacles ──────────────────────────────────────────
 
+  /** Scale design-time pixel values to the live playfield height. */
+  private hScale() {
+    return this.scale.height / FALCON_FLIGHT.designHeight
+  }
+
   private spawnObstaclesIfNeeded() {
     if (this.time.now < this.nextSpawnAt) return
+    const s = this.hScale()
+    // Keep gaps roomy relative to falcon size across portrait/landscape
     const gap = Phaser.Math.Linear(
-      FALCON_FLIGHT.gapMax,
-      FALCON_FLIGHT.gapMin,
+      FALCON_FLIGHT.gapMax * s,
+      FALCON_FLIGHT.gapMin * s,
       this.difficulty,
     )
     const interval = Phaser.Math.Linear(
@@ -731,22 +740,24 @@ export class FalconFlightScene extends Phaser.Scene {
       FALCON_FLIGHT.spawnMinMs,
       this.difficulty,
     )
-    if (Math.random() < 0.28 + this.difficulty * 0.15) this.spawnQuantumBarrier()
+    if (Math.random() < 0.22 + this.difficulty * 0.12) this.spawnQuantumBarrier()
     else this.spawnLedgerPair(gap)
-    this.nextSpawnAt = this.time.now + interval * Phaser.Math.FloatBetween(0.85, 1.1)
+    this.nextSpawnAt = this.time.now + interval * Phaser.Math.FloatBetween(0.9, 1.15)
   }
 
   private spawnLedgerPair(gapHeight: number) {
     const { width, height } = this.scale
     const x = width + 50
-    const margin = 50
+    const margin = Math.max(48, 50 * this.hScale())
+    const minGap = Math.max(gapHeight, FALCON_FLIGHT.playerRadius * 2 + 90 * this.hScale())
+    const gap = Math.min(minGap, height - margin * 2 - 20)
     const gapCenter = Phaser.Math.Between(
-      margin + gapHeight / 2,
-      height - margin - gapHeight / 2,
+      margin + gap / 2,
+      height - margin - gap / 2,
     )
-    const topBottom = gapCenter - gapHeight / 2
-    const bottomTop = gapCenter + gapHeight / 2
-    const blockWidth = 58
+    const topBottom = gapCenter - gap / 2
+    const bottomTop = gapCenter + gap / 2
+    const blockWidth = 52
     const topHeight = Math.max(24, topBottom)
     const bottomHeight = Math.max(24, height - bottomTop)
 
@@ -762,7 +773,7 @@ export class FalconFlightScene extends Phaser.Scene {
       kind: 'ledger',
       scored: false,
       gapCenterY: gapCenter,
-      gapHalf: gapHeight / 2,
+      gapHalf: gap / 2,
     }
     top.setData('meta', meta)
     bottom.setData('meta', meta)
@@ -770,10 +781,12 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private spawnQuantumBarrier() {
     const { width, height } = this.scale
+    const s = this.hScale()
     const x = width + 40
-    const slotH = Phaser.Math.Linear(140, 95, this.difficulty)
-    const slotCenter = Phaser.Math.Between(90, height - 90)
-    const barW = 26
+    const slotH = Phaser.Math.Linear(170 * s, 130 * s, this.difficulty)
+    const margin = Math.max(70, 80 * s)
+    const slotCenter = Phaser.Math.Between(margin, height - margin)
+    const barW = 24
     const topH = Math.max(20, slotCenter - slotH / 2)
     const botY = slotCenter + slotH / 2
     const botH = Math.max(20, height - botY)
@@ -788,7 +801,8 @@ export class FalconFlightScene extends Phaser.Scene {
       { y: botY + botH / 2, h: botH },
     ]) {
       const bar = this.obstacles.create(x, seg.y, 'quantum-bar') as Phaser.Physics.Arcade.Image
-      this.fitObstacleBody(bar, barW, seg.h, 0.78, 0.9)
+      // Tighter hitboxes so visual gaps match collision
+      this.fitObstacleBody(bar, barW, seg.h, 0.7, 0.86)
       bar.setData('meta', meta)
       bar.setDepth(5)
       bar.setImmovable(true)
@@ -805,7 +819,7 @@ export class FalconFlightScene extends Phaser.Scene {
   ) {
     const key = kind === 'ledger' ? 'ledger-block' : 'quantum-bar'
     const block = this.obstacles.create(x, y, key) as Phaser.Physics.Arcade.Image
-    this.fitObstacleBody(block, w, h, 0.78, 0.9)
+    this.fitObstacleBody(block, w, h, 0.7, 0.86)
     block.setImmovable(true)
     block.setDepth(5)
     return block
@@ -815,8 +829,8 @@ export class FalconFlightScene extends Phaser.Scene {
     obj: Phaser.Physics.Arcade.Image,
     displayW: number,
     displayH: number,
-    hitScaleX = 0.8,
-    hitScaleY = 0.9,
+    hitScaleX = 0.7,
+    hitScaleY = 0.86,
   ) {
     obj.setDisplaySize(displayW, displayH)
     const body = obj.body as Phaser.Physics.Arcade.Body

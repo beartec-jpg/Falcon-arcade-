@@ -29,21 +29,24 @@ export const RUNNER_COLORS = {
 export const LEDGER_RUNNER = {
   width: 960,
   height: 540,
+  /** Design height used when authoring ground/jump/obstacle values. */
+  designHeight: 540,
   /** Fixed runner X — world scrolls left. */
   playerX: 160,
   playerW: 28,
   playerH: 40,
   slideH: 22,
+  /** Ground Y at designHeight (scales with playfield). */
   groundY: 460,
   gravityY: 1600,
   jumpVelocity: -520,
   doubleJumpVelocity: -440,
   slideDurationMs: 420,
   /** Base world scroll speed (px/s). */
-  baseScrollSpeed: 260,
-  maxScrollSpeed: 520,
-  spawnMaxMs: 1800,
-  spawnMinMs: 900,
+  baseScrollSpeed: 240,
+  maxScrollSpeed: 420,
+  spawnMaxMs: 2000,
+  spawnMinMs: 1100,
   distancePointsPerSecond: 6,
   clearBonus: 10,
   perfectBonus: 6,
