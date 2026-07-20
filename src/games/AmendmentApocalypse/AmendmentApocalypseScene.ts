@@ -3,6 +3,7 @@ import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
   createPlayerTrail,
@@ -16,7 +17,9 @@ import {
   playDeathJuice,
   startTrail,
   stopTrail,
+  updateNebulaBackdrop,
   updateParallaxStarfield,
+  type NebulaBackdrop,
   type StarLayer,
 } from '../../utils/gameJuice'
 import {
@@ -93,6 +96,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private pointerY = 0
 
   private starLayers: StarLayer[] = []
+  private nebula!: NebulaBackdrop
   private dataStream!: Phaser.GameObjects.Graphics
   private hudScore!: Phaser.GameObjects.Text
   private hudTier!: Phaser.GameObjects.Text
@@ -123,6 +127,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.physics.world.gravity.y = 0
     ensureJuiceTextures(this)
 
+    this.nebula = createNebulaBackdrop(this, width, height, 0)
     this.starLayers = createParallaxStarfield(this, width, height)
     this.dataStream = createDataStream(this, 1)
     this.createTextures()
@@ -210,6 +215,12 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       scroll,
       delta,
       'x',
+    )
+    updateNebulaBackdrop(
+      this.nebula,
+      this.scale.width,
+      this.scale.height,
+      delta,
     )
     this.streamScroll += scroll * (delta / 1000) * 0.4
     drawDataStream(

@@ -10,6 +10,7 @@ import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
   createPlayerTrail,
@@ -24,7 +25,9 @@ import {
   playDeathJuice,
   startTrail,
   stopTrail,
+  updateNebulaBackdrop,
   updateParallaxStarfield,
+  type NebulaBackdrop,
   type StarLayer,
   type TouchZonePair,
 } from '../../utils/gameJuice'
@@ -95,6 +98,7 @@ export class EpochRiseScene extends Phaser.Scene {
   private pointerDir = 0
 
   private starLayers: StarLayer[] = []
+  private nebula!: NebulaBackdrop
   private dataStream!: Phaser.GameObjects.Graphics
   private laneGfx!: Phaser.GameObjects.Graphics
   private laneScroll = 0
@@ -127,6 +131,7 @@ export class EpochRiseScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, width, height)
     ensureJuiceTextures(this)
 
+    this.nebula = createNebulaBackdrop(this, width, height, 0)
     this.starLayers = createParallaxStarfield(this, width, height)
     this.dataStream = createDataStream(this, 1)
     this.laneGfx = this.add.graphics().setDepth(2)
@@ -202,6 +207,12 @@ export class EpochRiseScene extends Phaser.Scene {
       scrollRef,
       delta,
       'y',
+    )
+    updateNebulaBackdrop(
+      this.nebula,
+      this.scale.width,
+      this.scale.height,
+      delta,
     )
     this.streamScroll += scrollRef * (delta / 1000) * 0.5
     drawDataStream(

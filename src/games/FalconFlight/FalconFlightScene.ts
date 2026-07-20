@@ -10,6 +10,7 @@ import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
   createPlayerTrail,
@@ -25,7 +26,9 @@ import {
   playDeathJuice,
   startTrail,
   stopTrail,
+  updateNebulaBackdrop,
   updateParallaxStarfield,
+  type NebulaBackdrop,
   type StarLayer,
   type TouchZonePair,
 } from '../../utils/gameJuice'
@@ -68,6 +71,7 @@ export class FalconFlightScene extends Phaser.Scene {
   private flightEmblem!: FlightEmblem
   private obstacles!: Phaser.Physics.Arcade.Group
   private starLayers: StarLayer[] = []
+  private nebula!: NebulaBackdrop
   private dataStream!: Phaser.GameObjects.Graphics
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
@@ -105,6 +109,7 @@ export class FalconFlightScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(FALCON_COLORS.bgHex)
     ensureJuiceTextures(this)
 
+    this.nebula = createNebulaBackdrop(this, width, height, 0)
     this.starLayers = createParallaxStarfield(this, width, height)
     this.dataStream = createDataStream(this, 1)
     this.createTextures()
@@ -187,6 +192,12 @@ export class FalconFlightScene extends Phaser.Scene {
       scrollRef,
       delta,
       'x',
+    )
+    updateNebulaBackdrop(
+      this.nebula,
+      this.scale.width,
+      this.scale.height,
+      delta,
     )
     this.streamScroll += scrollRef * (delta / 1000) * 0.45
     drawDataStream(

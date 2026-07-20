@@ -1,17 +1,21 @@
 import { useEffect, useRef } from 'react'
 import Phaser from 'phaser'
 import type { PhaserSceneClass } from '../types/game'
+import {
+  resolveLogicalSize,
+  type AspectBucket,
+} from '../utils/gameSize'
 
 export type UsePhaserGameConfig = {
   width?: number
   height?: number
-  backgroundColor?: string
-  /** Enable arcade physics (needed for collision games). */
-  arcadePhysics?: boolean
   /**
-   * Seed the game registry once after construction.
-   * Prefer putting stable refs (bridge objects) here.
+   * Match logical resolution to the host aspect (default true).
+   * Fills mobile portrait without stretching art.
    */
+  matchParentAspect?: boolean
+  backgroundColor?: string
+  arcadePhysics?: boolean
   onGameCreated?: (game: Phaser.Game) => void
 }
 
@@ -22,6 +26,7 @@ export function usePhaserGame(
   const containerRef = useRef<HTMLDivElement | null>(null)
   const gameRef = useRef<Phaser.Game | null>(null)
   const configRef = useRef(config)
+  const bucketRef = useRef<AspectBucket | null>(null)
   configRef.current = config
 
   useEffect(() => {
@@ -32,16 +37,30 @@ export function usePhaserGame(
     const {
       width = 960,
       height = 540,
-      backgroundColor = '#020617',
+      matchParentAspect = true,
+      backgroundColor = '#0b1224',
       arcadePhysics = false,
     } = configRef.current
 
     const parent = containerRef.current
 
+    // Give the host a real height before measuring (flex may still be 0 on first paint)
+    if (parent.clientHeight < 80) {
+      parent.style.minHeight = 'min(78dvh, 900px)'
+    }
+
+    const initial = matchParentAspect
+      ? resolveLogicalSize(parent)
+      : {
+          size: { width, height },
+          bucket: 'landscape' as AspectBucket,
+        }
+    bucketRef.current = initial.bucket
+
     const game = new Phaser.Game({
       type: Phaser.AUTO,
-      width,
-      height,
+      width: initial.size.width,
+      height: initial.size.height,
       parent,
       backgroundColor,
       scale: {
@@ -64,13 +83,20 @@ export function usePhaserGame(
     gameRef.current = game
     configRef.current.onGameCreated?.(game)
 
-    // Keep the canvas fitted when the host size changes (mobile layout / play focus).
     const refreshScale = () => {
-      if (!gameRef.current) return
+      const g = gameRef.current
+      if (!g || !containerRef.current) return
       try {
-        gameRef.current.scale.refresh()
+        if (configRef.current.matchParentAspect !== false) {
+          const next = resolveLogicalSize(containerRef.current)
+          if (next.bucket !== bucketRef.current) {
+            bucketRef.current = next.bucket
+            g.scale.setGameSize(next.size.width, next.size.height)
+          }
+        }
+        g.scale.refresh()
       } catch {
-        // Game may be mid-destroy
+        // mid-destroy
       }
     }
 
@@ -84,9 +110,9 @@ export function usePhaserGame(
 
     window.addEventListener('resize', refreshScale)
     window.addEventListener('orientationchange', refreshScale)
-
-    // Initial layout pass after mount (flex/grid may settle a frame later)
-    requestAnimationFrame(refreshScale)
+    requestAnimationFrame(() => {
+      requestAnimationFrame(refreshScale)
+    })
 
     return () => {
       ro?.disconnect()
@@ -94,6 +120,7 @@ export function usePhaserGame(
       window.removeEventListener('orientationchange', refreshScale)
       game.destroy(true)
       gameRef.current = null
+      bucketRef.current = null
     }
   }, [SceneClass])
 

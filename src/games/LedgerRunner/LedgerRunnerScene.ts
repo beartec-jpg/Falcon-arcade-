@@ -10,6 +10,7 @@ import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
   createPlayerTrail,
@@ -25,7 +26,9 @@ import {
   playDeathJuice,
   startTrail,
   stopTrail,
+  updateNebulaBackdrop,
   updateParallaxStarfield,
+  type NebulaBackdrop,
   type StarLayer,
   type TouchZonePair,
 } from '../../utils/gameJuice'
@@ -87,6 +90,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private keyP!: Phaser.Input.Keyboard.Key
 
   private starLayers: StarLayer[] = []
+  private nebula!: NebulaBackdrop
   private dataStream!: Phaser.GameObjects.Graphics
   private groundGfx!: Phaser.GameObjects.Graphics
   private groundScroll = 0
@@ -118,6 +122,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, width, height)
     ensureJuiceTextures(this)
 
+    this.nebula = createNebulaBackdrop(this, width, height, 0)
     this.starLayers = createParallaxStarfield(this, width, this.groundY)
     this.dataStream = createDataStream(this, 1)
     this.createGround(width)
@@ -201,6 +206,12 @@ export class LedgerRunnerScene extends Phaser.Scene {
       scrollRef,
       delta,
       'x',
+    )
+    updateNebulaBackdrop(
+      this.nebula,
+      this.scale.width,
+      this.scale.height,
+      delta,
     )
     this.streamScroll += scrollRef * (delta / 1000) * 0.4
     drawDataStream(

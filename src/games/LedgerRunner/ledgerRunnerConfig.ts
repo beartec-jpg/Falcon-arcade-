@@ -6,8 +6,8 @@ export const LEDGER_RUNNER_SLUG = 'ledger-runner'
 export const LEDGER_RUNNER_REWARD_THRESHOLD = 500
 
 export const RUNNER_COLORS = {
-  bg: 0x020617,
-  bgHex: '#020617',
+  bg: 0x0f1b33,
+  bgHex: '#0f1b33',
   panel: 0x0f172a,
   border: 0x1e293b,
   bronze: 0xc07838,

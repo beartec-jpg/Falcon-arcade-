@@ -6,8 +6,8 @@ export const FALCON_FLIGHT_SLUG = 'falcon-flight'
 export const FALCON_FLIGHT_REWARD_THRESHOLD = 500
 
 export const FALCON_COLORS = {
-  bg: 0x020617,
-  bgHex: '#020617',
+  bg: 0x0f1b33,
+  bgHex: '#0f1b33',
   panel: 0x0f172a,
   border: 0x1e293b,
   bronze: 0xc07838,
