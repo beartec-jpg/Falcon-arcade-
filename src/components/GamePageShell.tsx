@@ -67,7 +67,13 @@ export function GamePageShell({
   useEffect(() => {
     if (!lastClaimResult || lastClaimResult.game !== gameSlug) return
     setClaimPending(false)
-  }, [lastClaimResult, gameSlug])
+    // Auto-fade claim success/error so it doesn't stick forever
+    const ms = lastClaimResult.ok ? 4500 : 6000
+    const t = window.setTimeout(() => {
+      clearClaimResult()
+    }, ms)
+    return () => window.clearTimeout(t)
+  }, [lastClaimResult, gameSlug, clearClaimResult])
 
   const canClaim = claimEnabled && isConnected
   const progressScore = Math.max(score, bestScore ?? 0, scoreForClaim)
@@ -261,7 +267,8 @@ export function GamePageShell({
 
             {lastClaimResult && lastClaimResult.game === gameSlug ? (
               <p
-                className="page-copy claim-hint"
+                className="page-copy claim-hint claim-hint--toast"
+                role="status"
                 style={{
                   color: lastClaimResult.ok ? '#4ade80' : '#f87171',
                 }}
