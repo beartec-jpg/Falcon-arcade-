@@ -122,6 +122,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private wasOnGround = true
   /** Ignore slide for a moment after a jump so fat-finger floor taps don’t slide. */
   private slideLockUntil = 0
+  /**
+   * After a successful jump, ground logic must not zero velocityY for a short
+   * window — feet are still on the floor for 1–2 frames and were eating hops.
+   */
+  private jumpBoostUntil = 0
 
   constructor() {
     super('LedgerRunnerScene')
@@ -243,10 +248,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
       'horizontal',
     )
     this.drawGround(delta)
-    this.syncPlayerVisual(delta)
-    this.updateGrounded()
 
-    if (this.waitingHowTo) return
+    if (this.waitingHowTo) {
+      this.syncPlayerVisual(delta)
+      return
+    }
 
     if (
       this.keyP &&
@@ -255,13 +261,17 @@ export class LedgerRunnerScene extends Phaser.Scene {
     ) {
       this.togglePause()
     }
-    if (this.paused) return
+    if (this.paused) {
+      this.syncPlayerVisual(delta)
+      return
+    }
 
     if (this.state === 'ready') {
       this.idleBob(delta)
       if (this.consumeJumpPress() || this.consumeStartPress()) {
         this.beginRun()
       }
+      this.syncPlayerVisual(delta)
       return
     }
 
@@ -270,10 +280,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
         this.resetRun()
         this.beginRun()
       }
+      this.syncPlayerVisual(delta)
       return
     }
 
-    // playing
+    // playing — resolve jump *before* ground stick so we never zero a fresh hop
     this.elapsedPlayMs += delta
     this.difficulty = Phaser.Math.Clamp(
       this.elapsedPlayMs / (LEDGER_RUNNER.difficultyRampSeconds * 1000),
@@ -286,22 +297,25 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.difficulty,
     )
 
-    this.handleSlideInput()
-    // Queue any jump edge this frame, then try (also drains the buffer)
     if (this.consumeJumpPress()) {
-      this.queueJump()
+      this.requestJump()
     }
     this.tryConsumeJumpBuffer()
+
+    this.handleSlideInput()
 
     if (this.isSliding && this.time.now >= this.slideUntil) {
       this.endSlide()
     }
+
+    this.updateGrounded()
 
     // Lock X; runner stays put while world scrolls.
     this.player.x = LEDGER_RUNNER.playerX
     const body = this.player.body as Phaser.Physics.Arcade.Body
     body.x = this.player.x - body.halfWidth
 
+    this.syncPlayerVisual(delta)
     this.advanceScore(delta)
     this.spawnHazardsIfNeeded()
     this.updateHazards(delta)
@@ -780,6 +794,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.jumpBufferUntil = 0
     this.coyoteUntil = 0
     this.slideLockUntil = 0
+    this.jumpBoostUntil = 0
     this.wasOnGround = true
     this.onGround = true
     this.touchUi?.setActive(true)
@@ -814,6 +829,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.jumpBufferUntil = 0
     this.coyoteUntil = 0
     this.slideLockUntil = 0
+    this.jumpBoostUntil = 0
     this.wasOnGround = true
     this.onGround = true
     this.tweens.killTweensOf(this.playerVisual)
@@ -881,7 +897,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   /** Remember a jump request for a short window (buffer). */
   private queueJump() {
-    this.jumpBufferUntil = this.time.now + 280
+    this.jumpBufferUntil = this.time.now + 320
   }
 
   /** Attempt jump if a buffered press is still live. */
@@ -894,6 +910,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private handleSlideInput() {
     if (this.time.now < this.slideLockUntil) return
+    if (this.time.now < this.jumpBoostUntil) return
     const downHeld =
       this.cursors?.down.isDown ||
       this.keyS?.isDown ||
@@ -914,35 +931,47 @@ export class LedgerRunnerScene extends Phaser.Scene {
     // Cancel slide into a jump (common when mashing)
     if (this.isSliding) {
       this.endSlide()
-      // After slide, treat as grounded jump if feet are on floor
       this.onGround = true
-      this.jumpsRemaining = Math.max(this.jumpsRemaining, 2)
+      this.jumpsRemaining = 2
     }
 
+    // Refresh grounded snap for this instant (don’t trust stale flag alone)
+    const body = this.player.body as Phaser.Physics.Arcade.Body
+    const halfH = body.halfHeight
+    const feet = this.player.y + halfH
+    const feetOnFloor = feet >= this.groundY - 4
+    const rising = body.velocity.y < -30
+    const groundedNow =
+      (this.onGround || feetOnFloor) &&
+      !rising &&
+      this.time.now >= this.jumpBoostUntil
+
     const coyote =
-      !this.onGround &&
-      this.time.now <= this.coyoteUntil &&
-      this.jumpsRemaining >= 1
-    const canGroundJump = this.onGround || coyote
-    // Any remaining jump charge in air (double-jump)
+      !groundedNow &&
+      this.time.now <= this.coyoteUntil
+    const canGroundJump = groundedNow || coyote
     const canAirJump = !canGroundJump && this.jumpsRemaining > 0
 
     if (!canGroundJump && !canAirJump) return false
 
     const isDouble = !canGroundJump
-    // Scale jump with playfield so arcs clear scaled spikes on tall phones
     const s = this.hScale()
     const vy =
       (isDouble
         ? LEDGER_RUNNER.doubleJumpVelocity
         : LEDGER_RUNNER.jumpVelocity) * s
 
-    const body = this.player.body as Phaser.Physics.Arcade.Body
+    // Lift off the floor slightly so the next ground pass cannot stick us
+    if (canGroundJump && feetOnFloor) {
+      this.player.y = this.groundY - halfH - 2
+      body.updateFromGameObject()
+    }
+
+    body.setAllowGravity(true)
     body.setVelocityY(vy)
     this.player.setVelocityY(vy)
 
     if (canGroundJump) {
-      // Ground / coyote jump always leaves one air jump
       this.jumpsRemaining = 1
       this.coyoteUntil = 0
     } else {
@@ -950,10 +979,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
     }
     this.onGround = false
     this.wasOnGround = false
-    // Don’t immediately re-enter slide from the same thumb zone
-    this.slideLockUntil = this.time.now + 180
+    this.slideLockUntil = this.time.now + 200
+    // Critical: ground clamp must not zero this hop for ~150ms
+    this.jumpBoostUntil = this.time.now + 150
 
-    // Small hop juice
     this.tweens.killTweensOf(this.playerVisual)
     this.playerVisual.setScale(1, 1)
     this.tweens.add({
@@ -991,33 +1020,44 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const halfH = body.halfHeight
     const feet = this.player.y + halfH
-    // Slightly softer floor test so tiny float errors don't deny landing
-    // Allow small upward velocity so we still “land” cleanly after micro-hops
-    const grounded = feet >= this.groundY - 3.5 && body.velocity.y >= -40
+    const boosting = this.time.now < this.jumpBoostUntil
+    const vy = body.velocity.y
+
+    // During jump boost: never zero upward velocity (this was eating hops)
+    if (boosting) {
+      if (feet > this.groundY + 6) {
+        this.player.y = this.groundY - halfH - 1
+        body.updateFromGameObject()
+      }
+      this.onGround = false
+      return
+    }
+
+    // Only land when falling or resting — never while rising
+    const grounded = feet >= this.groundY - 3.5 && vy >= -20
 
     if (grounded) {
       this.player.y = this.groundY - halfH
       body.updateFromGameObject()
-      this.player.setVelocityY(0)
+      if (vy > 0) this.player.setVelocityY(0)
+      else this.player.setVelocityY(0)
       if (!this.onGround) {
         this.jumpsRemaining = 2
       }
       this.onGround = true
       this.wasOnGround = true
       this.coyoteUntil = 0
-      // Landing with a buffered jump still in window → hop immediately
       this.tryConsumeJumpBuffer()
     } else {
       if (this.wasOnGround && this.onGround) {
-        // Just left the ground — coyote window for late jump presses
-        this.coyoteUntil = this.time.now + 140
+        this.coyoteUntil = this.time.now + 160
       }
       this.onGround = false
       this.wasOnGround = false
     }
 
-    // Hard floor clamp
-    if (this.player.y + halfH > this.groundY) {
+    // Hard floor clamp — only stick when not rising
+    if (this.player.y + halfH > this.groundY && body.velocity.y >= 0) {
       this.player.y = this.groundY - halfH
       body.updateFromGameObject()
       this.player.setVelocityY(0)
