@@ -1610,6 +1610,59 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   // ── hazards / wave director ────────────────────────────
 
+  /**
+   * Rightmost X still occupied by a ground-lane hazard (or pit apron).
+   * Used so the next spawn never stacks on top of the previous one.
+   */
+  private groundTrackRightEdge(): number {
+    const s = this.softH()
+    let maxR = this.scale.width
+    for (const haz of this.hazards.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      const meta = haz.getData('meta') as HazardMeta | undefined
+      if (!meta) continue
+      if (meta.isPlatform || meta.lane === 'high') continue
+      if (meta.isPit && meta.pitRight != null) {
+        // Clear floor after the pit so landing isn’t into another hazard
+        const apron = meta.needsDoubleJump ? 160 * s : 110 * s
+        maxR = Math.max(maxR, meta.pitRight + apron)
+        continue
+      }
+      // Ignore pure pit cosmetics with noDamage that aren’t scoring markers
+      if (meta.isPit) continue
+      if (meta.isPowerup || meta.kind === 'floater') {
+        maxR = Math.max(maxR, haz.x + haz.displayWidth / 2 + 40 * s)
+        continue
+      }
+      maxR = Math.max(maxR, haz.x + haz.displayWidth / 2)
+    }
+    return maxR
+  }
+
+  /** Off-screen spawn X that clears all existing ground hazards. */
+  private nextGroundSpawnX(extraPad = 0): number {
+    const s = this.softH()
+    const minOffscreen = this.scale.width + 55
+    const clearOf = this.groundTrackRightEdge() + (90 + extraPad) * s
+    return Math.max(minOffscreen, clearOf)
+  }
+
+  /** Remove ground obstacles that would sit inside a new pit / approach zone. */
+  private clearGroundHazardsInRange(left: number, right: number) {
+    for (const haz of [
+      ...this.hazards.getChildren(),
+    ] as Phaser.Physics.Arcade.Image[]) {
+      const meta = haz.getData('meta') as HazardMeta | undefined
+      if (!meta) continue
+      if (meta.isPlatform || meta.isPit) continue
+      if (meta.lane === 'high') continue
+      const hx = haz.x
+      const half = haz.displayWidth / 2
+      if (hx + half > left && hx - half < right) {
+        haz.destroy()
+      }
+    }
+  }
+
   private unlockedRunnerWaves(): RunnerWavePattern[] {
     const d = this.difficulty
     // Easy intro curriculum
@@ -1653,25 +1706,26 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const d = this.difficulty
     switch (p) {
       case 'spikes':
-        return { count: 3 + Math.floor(d * 2), spacing: 1.05 }
+        return { count: 3 + Math.floor(d * 2), spacing: 1.15 }
       case 'floaters':
-        return { count: 2 + Math.floor(d * 2), spacing: 1.1 }
+        return { count: 2 + Math.floor(d * 2), spacing: 1.2 }
       case 'slide_beams':
-        return { count: 2 + Math.floor(d * 1.5), spacing: 1.2 }
+        return { count: 2 + Math.floor(d * 1.5), spacing: 1.3 }
       case 'barriers':
-        return { count: 2 + Math.floor(d), spacing: 1.15 }
-      case 'pits_small':
         return { count: 2 + Math.floor(d), spacing: 1.25 }
+      case 'pits_small':
+        return { count: 2 + Math.floor(d), spacing: 1.45 }
       case 'pits_wide':
-        return { count: 1 + Math.floor(d), spacing: 1.4 }
+        return { count: 1 + Math.floor(d), spacing: 1.65 }
       case 'powerups':
-        return { count: 1, spacing: 1.1 }
+        return { count: 1, spacing: 1.2 }
       case 'runway':
-        return { count: 1, spacing: 1.5 }
+        return { count: 1, spacing: 1.7 }
       case 'spike_beam':
-        return { count: 2, spacing: 0.55 }
+        // Spatial pad handles distance; keep time gap readable
+        return { count: 2, spacing: 0.85 }
       default:
-        return { count: 3, spacing: 1 }
+        return { count: 3, spacing: 1.15 }
     }
   }
 
@@ -1713,10 +1767,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
         break
       case 'powerups':
         this.spawnPowerup()
-        // Follow with an easy spike so the orb isn’t lonely
-        this.time.delayedCall(400, () => {
-          if (this.state === 'playing') this.spawnSpike()
-        })
         break
       case 'runway':
         this.spawnHighRunway()
@@ -1741,6 +1791,18 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.difficulty,
     )
 
+    // Wait until the track ahead is clear enough (prevents spike→pit stacks)
+    const s = this.softH()
+    const trackClearX = this.groundTrackRightEdge()
+    if (trackClearX > this.scale.width + 40 * s) {
+      // Something still close to the spawn edge — delay a bit more
+      const wait =
+        ((trackClearX - this.scale.width) / Math.max(120, this.scrollSpeed)) *
+        1000
+      this.nextSpawnAt = this.time.now + Math.min(900, Math.max(120, wait * 0.35))
+      return
+    }
+
     if (this.waveRemaining <= 0) {
       this.startNextRunnerWave()
     }
@@ -1748,7 +1810,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const spacing = this.spawnWaveHazard()
     const betweenWaves = this.waveRemaining <= 0
     const gapMul = betweenWaves
-      ? 1.4 + (1 - this.difficulty) * 0.3
+      ? 1.45 + (1 - this.difficulty) * 0.35
       : spacing
 
     this.nextSpawnAt =
@@ -1780,7 +1842,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private spawnSpike() {
     const s = this.softH()
-    const x = this.scale.width + 40
+    const x = this.nextGroundSpawnX(20)
     // Spikes stay jumpable — not too tall relative to jump arc
     const h = 34 * s
     const w = 36
@@ -1804,7 +1866,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private spawnBarrier() {
     // Tall ledger with crawl gap — sized so STANDING always hits, SLIDE clears
     const s = this.softH()
-    const x = this.scale.width + 50
+    const x = this.nextGroundSpawnX(40)
     // Gap just above crouch height, well below standing head
     const gap = Phaser.Math.Linear(26 * s, 24 * s, this.difficulty)
     const h = Phaser.Math.Linear(150 * s, 190 * s, this.difficulty)
@@ -1834,7 +1896,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
    */
   private spawnLowBeam() {
     const s = this.softH()
-    const x = this.scale.width + 48
+    const x = this.nextGroundSpawnX(40)
     const gap = 25 * s
     const h = Phaser.Math.Between(Math.round(100 * s), Math.round(140 * s))
     const w = 54
@@ -1858,7 +1920,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private spawnPowerup() {
     const s = this.softH()
-    const x = this.scale.width + 40
+    const x = this.nextGroundSpawnX(30)
     const y = this.groundY - Phaser.Math.Between(Math.round(50 * s), Math.round(90 * s))
     const p = this.hazards.create(x, y, 'powerup') as Phaser.Physics.Arcade.Image
     p.setDisplaySize(28 * s, 28 * s)
@@ -1884,9 +1946,42 @@ export class LedgerRunnerScene extends Phaser.Scene {
     attachQuantumPulse(this, p)
   }
 
+  private spawnFloater() {
+    const s = this.softH()
+    const x = this.nextGroundSpawnX(25)
+    const size = 32 * s
+    const baseY = this.groundY - Phaser.Math.Between(Math.floor(75 * s), Math.floor(110 * s))
+
+    const floater = this.hazards.create(x, baseY, 'floater') as Phaser.Physics.Arcade.Image
+    floater.setDisplaySize(size, size)
+    const body = floater.body as Phaser.Physics.Arcade.Body
+    const frameW = floater.frame.width
+    const sourceR = frameW * 0.35
+    body.setCircle(sourceR)
+    body.setOffset((frameW - sourceR * 2) / 2, (frameW - sourceR * 2) / 2)
+    body.setAllowGravity(false)
+    body.updateFromGameObject()
+    floater.setImmovable(true)
+    floater.setDepth(6)
+    floater.setData('floatPhase', Math.random() * Math.PI * 2)
+    floater.setData('floatBase', baseY)
+    floater.setData('floatAmp', Phaser.Math.Between(Math.floor(14 * s), Math.floor(28 * s)))
+
+    const meta: HazardMeta = {
+      kind: 'floater',
+      scored: false,
+      dangerTop: baseY - 36 * s,
+      dangerBottom: baseY + 36 * s,
+      lane: 'any',
+    }
+    floater.setData('meta', meta)
+    attachQuantumPulse(this, floater)
+  }
+
   /**
    * Hole in the floor with spike teeth. Small = single jump; wide = double-jump.
    * High-contrast rims + warn diamond so it doesn’t blend into the ground.
+   * Always reserves approach + landing clear space so spikes can’t sit on the lips.
    */
   private spawnFloorPit(needsDouble: boolean) {
     const s = this.softH()
@@ -1894,10 +1989,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const widthPx = needsDouble
       ? Phaser.Math.Between(Math.round(200 * s), Math.round(280 * s))
       : Phaser.Math.Between(Math.round(110 * s), Math.round(155 * s))
-    const startX = this.scale.width + 60
-    const left = startX
-    const right = startX + widthPx
+    // Extra pad: clear approach before the lip (landing after prior hazard)
+    const left = this.nextGroundSpawnX(needsDouble ? 80 : 50)
+    const right = left + widthPx
     const midX = (left + right) / 2
+    // Wipe any leftover ground junk that would land in/near this pit
+    this.clearGroundHazardsInRange(left - 40 * s, right + 40 * s)
+
     const pitH = Math.max(56, this.scale.height - this.groundY + 12)
     const voidY = this.groundY + pitH / 2 - 2
 
@@ -1914,9 +2012,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
       needsDoubleJump: needsDouble,
     }
 
-    // Warning diamond floating just before the lip
+    // Warning diamond floating just before the lip (still on solid ground)
     const warn = this.hazards.create(
-      left - 28 * s,
+      left - 36 * s,
       this.groundY - 36 * s,
       'pit-warn',
     ) as Phaser.Physics.Arcade.Image
@@ -1979,13 +2077,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
       post.setData('meta', { ...pitMetaBase })
     }
 
-    // Spike teeth — taller, stick above the lip so they read as a hazard mouth
+    // Spike teeth — only *inside* the pit (not on approach/landing floor)
     const spikeH = 36 * s
     const spikeW = 34
     const count = Math.max(3, Math.floor(widthPx / (spikeW * 0.85)))
     for (let i = 0; i < count; i++) {
-      const sx = left + spikeW * 0.45 + i * (widthPx / count)
-      // Tips poke up through the rim
+      const sx = left + spikeW * 0.55 + i * (widthPx / count)
+      if (sx < left + 8 || sx > right - 8) continue
       const spike = this.hazards.create(
         sx,
         this.groundY + spikeH * 0.15,
@@ -2165,39 +2263,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
         attachQuantumPulse(this, floater)
       }
     })
-  }
-
-  private spawnFloater() {
-    const s = this.softH()
-    const x = this.scale.width + 40
-    const size = 32 * s
-    // Sit in mid jump band — not unreasonably high on tall screens
-    const baseY = this.groundY - Phaser.Math.Between(Math.floor(75 * s), Math.floor(110 * s))
-
-    const floater = this.hazards.create(x, baseY, 'floater') as Phaser.Physics.Arcade.Image
-    floater.setDisplaySize(size, size)
-    const body = floater.body as Phaser.Physics.Arcade.Body
-    const frameW = floater.frame.width
-    const sourceR = frameW * 0.35
-    body.setCircle(sourceR)
-    body.setOffset((frameW - sourceR * 2) / 2, (frameW - sourceR * 2) / 2)
-    body.setAllowGravity(false)
-    body.updateFromGameObject()
-    floater.setImmovable(true)
-    floater.setDepth(6)
-    floater.setData('floatPhase', Math.random() * Math.PI * 2)
-    floater.setData('floatBase', baseY)
-    floater.setData('floatAmp', Phaser.Math.Between(Math.floor(14 * s), Math.floor(28 * s)))
-
-    const meta: HazardMeta = {
-      kind: 'floater',
-      scored: false,
-      dangerTop: baseY - 36 * s,
-      dangerBottom: baseY + 36 * s,
-      lane: 'any',
-    }
-    floater.setData('meta', meta)
-    attachQuantumPulse(this, floater)
   }
 
   private updateHazards(delta: number) {
