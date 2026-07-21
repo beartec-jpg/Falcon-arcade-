@@ -36,23 +36,30 @@ export const LEDGER_RUNNER = {
   playerW: 28,
   playerH: 40,
   slideH: 22,
+  /** Super size (Mario-style power) multiplies standing/slide height. */
+  powerScale: 1.38,
   /** Ground Y at designHeight (scales with playfield). */
   groundY: 460,
   gravityY: 1600,
   jumpVelocity: -520,
-  doubleJumpVelocity: -440,
-  slideDurationMs: 420,
+  doubleJumpVelocity: -460,
+  slideDurationMs: 480,
   /** Base world scroll speed (px/s). */
   baseScrollSpeed: 240,
   maxScrollSpeed: 420,
-  spawnMaxMs: 2000,
-  spawnMinMs: 1100,
+  spawnMaxMs: 1950,
+  spawnMinMs: 1050,
   distancePointsPerSecond: 6,
   clearBonus: 10,
   perfectBonus: 6,
   comboStepBonus: 3,
   maxCombo: 12,
   difficultyRampSeconds: 75,
+  /** Elevated runway height above ground (design px). */
+  platformRise: 92,
+  /** How long a runway segment is (design px). */
+  platformMinLen: 420,
+  platformMaxLen: 720,
 } as const
 
 export type LedgerRunnerGameState = 'ready' | 'playing' | 'gameover'

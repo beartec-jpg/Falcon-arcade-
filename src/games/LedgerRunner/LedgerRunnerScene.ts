@@ -41,7 +41,13 @@ import {
   type LedgerRunnerGameState,
 } from './ledgerRunnerConfig'
 
-type HazardKind = 'spike' | 'barrier' | 'floater'
+type HazardKind =
+  | 'spike'
+  | 'barrier'
+  | 'floater'
+  | 'lowbeam'
+  | 'powerup'
+  | 'platform'
 
 type HazardMeta = {
   kind: HazardKind
@@ -49,6 +55,16 @@ type HazardMeta = {
   /** Vertical band the runner must avoid (for perfect-clear checks). */
   dangerTop: number
   dangerBottom: number
+  /** ground hazards ignored while on elevated runway */
+  lane?: 'ground' | 'high' | 'any'
+  /** True if standing cannot clear — must slide (or be on high platform). */
+  requiresSlide?: boolean
+  noDamage?: boolean
+  isPowerup?: boolean
+  isPlatform?: boolean
+  platformTop?: number
+  platformLeft?: number
+  platformRight?: number
 }
 
 /**
@@ -127,6 +143,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
    * window — feet are still on the floor for 1–2 frames and were eating hops.
    */
   private jumpBoostUntil = 0
+  /** Mario-style power: one free hit, then shrink. */
+  private powered = false
+  /** Currently standing on elevated runway. */
+  private onPlatform = false
+  private activePlatformTop = 0
 
   constructor() {
     super('LedgerRunnerScene')
@@ -135,6 +156,29 @@ export class LedgerRunnerScene extends Phaser.Scene {
   /** Scale design-time values to the live playfield height. */
   private hScale() {
     return this.scale.height / LEDGER_RUNNER.designHeight
+  }
+
+  private softH() {
+    return Phaser.Math.Clamp(this.hScale(), 0.95, 1.2)
+  }
+
+  private standH() {
+    return (
+      LEDGER_RUNNER.playerH *
+      (this.powered ? LEDGER_RUNNER.powerScale : 1)
+    )
+  }
+
+  private crouchH() {
+    return (
+      LEDGER_RUNNER.slideH *
+      (this.powered ? LEDGER_RUNNER.powerScale * 0.92 : 1)
+    )
+  }
+
+  /** Effective floor under the runner (ground or elevated runway). */
+  private floorY() {
+    return this.onPlatform ? this.activePlatformTop : this.groundY
   }
 
   create() {
@@ -181,8 +225,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.player,
       this.hazards,
-      () => this.handleCrash(),
-      () => this.time.now >= this.invulnUntil,
+      (_p, h) => this.onHazardOverlap(h as Phaser.Physics.Arcade.Image),
+      (_p, h) => this.shouldProcessHazard(h as Phaser.Physics.Arcade.Image),
       this,
     )
 
@@ -204,8 +248,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
         'Ledger Runner',
         [
           'You run automatically.',
-          'Tap almost anywhere to jump (double-jump in air).',
-          'Tap the bottom edge of the screen (or ↓) to slide.',
+          'Jump spikes · slide under LOW beams (standing will hit).',
+          'Grab bronze SUPER for a free hit · double-jump onto high runways.',
           `Chain cleans for combos. Claim at ${LEDGER_RUNNER_REWARD_THRESHOLD}.`,
         ],
         () => {
@@ -385,6 +429,60 @@ export class LedgerRunnerScene extends Phaser.Scene {
       g.fillStyle(RUNNER_COLORS.bronzeBright, 0.85)
       g.fillCircle(s / 2, s / 2, 6)
       g.generateTexture('floater', s, s)
+      g.destroy()
+    }
+
+    // Low beam — must slide (clearly marked SLIDE)
+    if (!this.textures.exists('lowbeam')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 56
+      const h = 100
+      g.fillStyle(RUNNER_COLORS.danger, 0.92)
+      g.fillRoundedRect(0, 0, w, h, 4)
+      g.lineStyle(2, 0xfef2f2, 0.9)
+      g.strokeRoundedRect(1, 1, w - 2, h - 2, 4)
+      g.fillStyle(0x020617, 0.85)
+      g.fillRect(6, h - 22, w - 12, 14)
+      g.fillStyle(0xfef2f2, 1)
+      // simple “SLIDE” bars
+      g.fillRect(12, h - 16, w - 24, 3)
+      g.fillRect(12, h - 10, w - 24, 3)
+      g.generateTexture('lowbeam', w, h)
+      g.destroy()
+    }
+
+    // Super power-up (bronze star coin)
+    if (!this.textures.exists('powerup')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const s = 32
+      const c = s / 2
+      g.fillStyle(RUNNER_COLORS.bronzeBright, 1)
+      g.fillCircle(c, c, 13)
+      g.lineStyle(2, RUNNER_COLORS.bronze, 1)
+      g.strokeCircle(c, c, 13)
+      g.fillStyle(0xf0c14a, 1)
+      g.fillTriangle(c, 6, c - 5, 14, c + 5, 14)
+      g.fillTriangle(c, s - 6, c - 5, s - 14, c + 5, s - 14)
+      g.fillTriangle(6, c, 14, c - 5, 14, c + 5)
+      g.fillTriangle(s - 6, c, s - 14, c - 5, s - 14, c + 5)
+      g.generateTexture('powerup', s, s)
+      g.destroy()
+    }
+
+    // Elevated runway tile
+    if (!this.textures.exists('runway')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 64
+      const h = 18
+      g.fillStyle(RUNNER_COLORS.bronzeDark, 1)
+      g.fillRoundedRect(0, 4, w, h - 4, 3)
+      g.fillStyle(RUNNER_COLORS.bronze, 1)
+      g.fillRoundedRect(0, 0, w, 8, 2)
+      g.lineStyle(1.5, RUNNER_COLORS.bronzeBright, 0.9)
+      g.lineBetween(4, 4, w - 4, 4)
+      g.lineStyle(1, RUNNER_COLORS.quantum, 0.45)
+      for (let x = 8; x < w; x += 12) g.lineBetween(x, 2, x, 6)
+      g.generateTexture('runway', w, h)
       g.destroy()
     }
   }
@@ -709,7 +807,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (mode === 'ready') {
       title.setText('Ledger Runner')
       body.setText(
-        'Auto-run the chain. Jump quantum spikes, slide under bad ledgers, and chain clean clears for combo bonuses.',
+        'Jump spikes · slide under LOW beams · grab SUPER for a free hit · double-jump onto high runways to skip ground hazards.',
       )
       cta.setText('TAP / SPACE TO RUN')
     } else {
@@ -747,27 +845,57 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private setStandingBody() {
     const body = this.player.body as Phaser.Physics.Arcade.Body
+    const power = this.powered ? LEDGER_RUNNER.powerScale : 1
+    // Scale the invisible hitbox so SUPER is truly taller (texture is 32×48)
+    this.player.setScale(power)
     const w = LEDGER_RUNNER.playerW
     const h = LEDGER_RUNNER.playerH
-    this.player.setSize(w, h)
     body.setSize(w, h)
     body.setOffset((32 - w) / 2, (48 - h) / 2)
-    // Keep feet on ground when exiting slide
-    if (this.onGround || this.player.y > this.groundY - h) {
-      this.player.y = this.groundY - h / 2
+    const floor = this.floorY()
+    const half = this.player.displayHeight / 2
+    if (this.onGround || this.player.y > floor - this.player.displayHeight) {
+      this.player.y = floor - half
       body.updateFromGameObject()
     }
+    this.playerVisual.setScale(power)
   }
 
   private setSlideBody() {
     const body = this.player.body as Phaser.Physics.Arcade.Body
+    const power = this.powered ? LEDGER_RUNNER.powerScale : 1
+    // Crouch: shorter visual + hitbox (still wider when SUPER)
+    this.player.setScale(power * 1.05, power * 0.55)
     const w = LEDGER_RUNNER.playerW + 6
     const h = LEDGER_RUNNER.slideH
-    this.player.setSize(w, h)
     body.setSize(w, h)
-    body.setOffset((32 - w) / 2, 48 - h - 2)
-    this.player.y = this.groundY - h / 2
+    body.setOffset((32 - w) / 2, (48 - h) / 2)
+    const half = this.player.displayHeight / 2
+    this.player.y = this.floorY() - half
     body.updateFromGameObject()
+    this.playerVisual.setScale(power * 1.05, power * 0.7)
+  }
+
+  private applyPowerState(powered: boolean, flash = true) {
+    this.powered = powered
+    if (this.isSliding) this.setSlideBody()
+    else this.setStandingBody()
+    if (flash) {
+      this.cameras.main.flash(
+        120,
+        powered ? 208 : 248,
+        powered ? 146 : 113,
+        powered ? 42 : 113,
+        false,
+      )
+      floatScoreText(
+        this,
+        this.player.x,
+        this.player.y - 36,
+        powered ? 'SUPER!' : 'SHRINK',
+        powered ? '#d4922a' : '#94a3b8',
+      )
+    }
   }
 
   // ── run lifecycle ──────────────────────────────────────
@@ -801,10 +929,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
     stopTrail(this.trail)
 
     this.hazards.clear(true, true)
+    this.powered = false
+    this.onPlatform = false
     this.endSlide()
+    this.applyPowerState(false, false)
     this.player.setPosition(
       LEDGER_RUNNER.playerX,
-      this.groundY - LEDGER_RUNNER.playerH / 2,
+      this.groundY - this.standH() / 2,
     )
     this.player.setVelocity(0, 0)
     this.tweens.killTweensOf(this.playerVisual)
@@ -835,13 +966,58 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.playerVisual)
     this.playerVisual.setAlpha(1)
     this.playerVisual.setAngle(0)
-    this.hudHint.setText('Jump spikes · slide ledgers · chain combos · P pause')
+    this.hudHint.setText(
+      'Jump · slide low beams · SUPER = 1 hit · double-jump runways',
+    )
     startTrail(this.trail, this.player)
     this.emitState('playing')
   }
 
+  private shouldProcessHazard(haz: Phaser.Physics.Arcade.Image): boolean {
+    if (this.time.now < this.invulnUntil) return false
+    if (this.state !== 'playing' || this.paused) return false
+    const meta = haz.getData('meta') as HazardMeta | undefined
+    if (!meta) return true
+    // Elevated runway: ignore ground-lane hazards
+    if (this.onPlatform && meta.lane === 'ground') return false
+    // On ground: ignore high-only pieces (none currently)
+    if (!this.onPlatform && meta.lane === 'high') return false
+    return true
+  }
+
+  private onHazardOverlap(haz: Phaser.Physics.Arcade.Image) {
+    const meta = haz.getData('meta') as HazardMeta | undefined
+    if (!meta) {
+      this.handleCrash()
+      return
+    }
+    if (meta.noDamage || meta.isPlatform) return
+    if (meta.isPowerup) {
+      if (!meta.scored) {
+        meta.scored = true
+        this.applyPowerState(true)
+        this.addScore(15)
+        haz.destroy()
+      }
+      return
+    }
+    this.handleCrash()
+  }
+
   private handleCrash() {
     if (this.state !== 'playing' || this.paused) return
+    if (this.time.now < this.invulnUntil) return
+
+    // Mario-style: powered → shrink and survive once
+    if (this.powered) {
+      this.applyPowerState(false)
+      this.invulnUntil = this.time.now + 1400
+      this.combo = Math.max(0, this.combo - 1)
+      this.hudCombo.setText('')
+      nearMissSpark(this, this.sparkEmitter, this.player.x, this.player.y)
+      this.cameras.main.shake(100, 0.008)
+      return
+    }
 
     this.state = 'gameover'
     this.player.setVelocity(0, 0)
@@ -963,7 +1139,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
     // Lift off the floor slightly so the next ground pass cannot stick us
     if (canGroundJump && feetOnFloor) {
-      this.player.y = this.groundY - halfH - 2
+      this.player.y = this.floorY() - halfH - 2
       body.updateFromGameObject()
     }
 
@@ -1016,6 +1192,22 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.setStandingBody()
   }
 
+  /** Best elevated runway under the player, if any. */
+  private findPlatformTop(): number | null {
+    const px = this.player.x
+    let best: number | null = null
+    for (const haz of this.hazards.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      const meta = haz.getData('meta') as HazardMeta | undefined
+      if (!meta?.isPlatform || meta.platformTop == null) continue
+      const left = meta.platformLeft ?? haz.x - haz.displayWidth / 2
+      const right = meta.platformRight ?? haz.x + haz.displayWidth / 2
+      if (px < left - 4 || px > right + 4) continue
+      const top = meta.platformTop
+      if (best === null || top < best) best = top
+    }
+    return best
+  }
+
   private updateGrounded() {
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const halfH = body.halfHeight
@@ -1023,10 +1215,23 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const boosting = this.time.now < this.jumpBoostUntil
     const vy = body.velocity.y
 
+    // Prefer elevated runway if feet are near it while falling/resting
+    const platTop = this.findPlatformTop()
+    let floor = this.groundY
+    this.onPlatform = false
+    if (platTop != null && vy >= -30 && feet >= platTop - 14 && feet <= platTop + 18) {
+      // Must be above main ground enough to count as runway
+      if (platTop < this.groundY - 40) {
+        floor = platTop
+        this.onPlatform = true
+        this.activePlatformTop = platTop
+      }
+    }
+
     // During jump boost: never zero upward velocity (this was eating hops)
     if (boosting) {
-      if (feet > this.groundY + 6) {
-        this.player.y = this.groundY - halfH - 1
+      if (feet > floor + 6) {
+        this.player.y = floor - halfH - 1
         body.updateFromGameObject()
       }
       this.onGround = false
@@ -1034,13 +1239,12 @@ export class LedgerRunnerScene extends Phaser.Scene {
     }
 
     // Only land when falling or resting — never while rising
-    const grounded = feet >= this.groundY - 3.5 && vy >= -20
+    const grounded = feet >= floor - 3.5 && vy >= -20
 
     if (grounded) {
-      this.player.y = this.groundY - halfH
+      this.player.y = floor - halfH
       body.updateFromGameObject()
-      if (vy > 0) this.player.setVelocityY(0)
-      else this.player.setVelocityY(0)
+      this.player.setVelocityY(0)
       if (!this.onGround) {
         this.jumpsRemaining = 2
       }
@@ -1054,10 +1258,15 @@ export class LedgerRunnerScene extends Phaser.Scene {
       }
       this.onGround = false
       this.wasOnGround = false
+      this.onPlatform = false
     }
 
-    // Hard floor clamp — only stick when not rising
-    if (this.player.y + halfH > this.groundY && body.velocity.y >= 0) {
+    // Hard floor clamp to main ground — only when not on platform / not rising
+    if (
+      !this.onPlatform &&
+      this.player.y + halfH > this.groundY &&
+      body.velocity.y >= 0
+    ) {
       this.player.y = this.groundY - halfH
       body.updateFromGameObject()
       this.player.setVelocityY(0)
@@ -1082,7 +1291,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
     this.playerVisual.x = this.player.x
     this.playerVisual.y = this.isSliding
-      ? this.groundY - LEDGER_RUNNER.slideH / 2
+      ? this.floorY() - this.crouchH() / 2
       : this.player.y
 
     if (this.state === 'playing' && this.onGround && !this.isSliding) {
@@ -1243,26 +1452,34 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.difficulty,
     )
 
+    const d = this.difficulty
     const roll = Math.random()
-    // Weight patterns by difficulty
-    if (roll < 0.42) {
+
+    // Structured-ish mix: plenty of slide-required beams + occasional runway/power
+    if (roll < 0.08 + d * 0.04) {
+      this.spawnHighRunway()
+    } else if (roll < 0.16 + d * 0.03) {
+      this.spawnPowerup()
+    } else if (roll < 0.38 + d * 0.05) {
+      // Must-slide low beam (main fix — standing no longer fits)
+      this.spawnLowBeam()
+    } else if (roll < 0.55) {
       this.spawnSpike()
     } else if (roll < 0.72) {
       this.spawnBarrier()
-    } else if (roll < 0.9) {
+    } else if (roll < 0.86) {
       this.spawnFloater()
     } else {
-      // Double pattern at higher difficulty
       this.spawnSpike()
-      if (this.difficulty > 0.35) {
-        this.time.delayedCall(280, () => {
-          if (this.state === 'playing') this.spawnBarrier()
+      if (this.difficulty > 0.25) {
+        this.time.delayedCall(300, () => {
+          if (this.state === 'playing') this.spawnLowBeam()
         })
       }
     }
 
     this.nextSpawnAt =
-      this.time.now + interval * Phaser.Math.FloatBetween(0.88, 1.12)
+      this.time.now + interval * Phaser.Math.FloatBetween(0.9, 1.1)
   }
 
   /**
@@ -1288,14 +1505,14 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private spawnSpike() {
-    const s = this.hScale()
+    const s = this.softH()
     const x = this.scale.width + 40
     // Spikes stay jumpable — not too tall relative to jump arc
-    const h = 30 * s
+    const h = 34 * s
     const w = 36
     const y = this.groundY - h / 2
     const spike = this.hazards.create(x, y, 'spike') as Phaser.Physics.Arcade.Image
-    this.fitHazardBody(spike, w, h, 0.65, 0.78)
+    this.fitHazardBody(spike, w, h, 0.7, 0.85)
     spike.setImmovable(true)
     spike.setDepth(6)
 
@@ -1304,24 +1521,25 @@ export class LedgerRunnerScene extends Phaser.Scene {
       scored: false,
       dangerTop: this.groundY - h,
       dangerBottom: this.groundY,
+      lane: 'ground',
     }
     spike.setData('meta', meta)
     attachQuantumPulse(this, spike)
   }
 
   private spawnBarrier() {
-    // Tall ledger hanging with crawl space under it — must slide
-    const s = this.hScale()
+    // Tall ledger with crawl gap — sized so STANDING always hits, SLIDE clears
+    const s = this.softH()
     const x = this.scale.width + 50
-    // Slide gap must clear standing-ish crouch height with margin
-    const gap = Phaser.Math.Linear(42 * s, 34 * s, this.difficulty)
-    const h = Phaser.Math.Linear(140 * s, 175 * s, this.difficulty)
-    const w = 46
+    // Gap just above crouch height, well below standing head
+    const gap = Phaser.Math.Linear(26 * s, 24 * s, this.difficulty)
+    const h = Phaser.Math.Linear(150 * s, 190 * s, this.difficulty)
+    const w = 48
     const bottom = this.groundY - gap
     const y = bottom - h / 2
 
     const barrier = this.hazards.create(x, y, 'barrier') as Phaser.Physics.Arcade.Image
-    this.fitHazardBody(barrier, w, h, 0.72, 0.88)
+    this.fitHazardBody(barrier, w, h, 0.85, 0.94)
     barrier.setImmovable(true)
     barrier.setDepth(6)
 
@@ -1330,12 +1548,154 @@ export class LedgerRunnerScene extends Phaser.Scene {
       scored: false,
       dangerTop: y - h / 2,
       dangerBottom: bottom,
+      lane: 'ground',
+      requiresSlide: true,
     }
     barrier.setData('meta', meta)
   }
 
+  /**
+   * Explicit low beam — shorter/heavier visual, same slide-only clearance.
+   * Standing or SUPER standing always collides unless sliding.
+   */
+  private spawnLowBeam() {
+    const s = this.softH()
+    const x = this.scale.width + 48
+    const gap = 25 * s
+    const h = Phaser.Math.Between(Math.round(100 * s), Math.round(140 * s))
+    const w = 54
+    const bottom = this.groundY - gap
+    const y = bottom - h / 2
+
+    const beam = this.hazards.create(x, y, 'lowbeam') as Phaser.Physics.Arcade.Image
+    this.fitHazardBody(beam, w, h, 0.9, 0.95)
+    beam.setImmovable(true)
+    beam.setDepth(6)
+
+    beam.setData('meta', {
+      kind: 'lowbeam',
+      scored: false,
+      dangerTop: y - h / 2,
+      dangerBottom: bottom,
+      lane: 'ground',
+      requiresSlide: true,
+    } satisfies HazardMeta)
+  }
+
+  private spawnPowerup() {
+    const s = this.softH()
+    const x = this.scale.width + 40
+    const y = this.groundY - Phaser.Math.Between(Math.round(50 * s), Math.round(90 * s))
+    const p = this.hazards.create(x, y, 'powerup') as Phaser.Physics.Arcade.Image
+    p.setDisplaySize(28 * s, 28 * s)
+    const body = p.body as Phaser.Physics.Arcade.Body
+    body.setCircle(p.frame.width * 0.4)
+    body.setOffset(p.frame.width * 0.1, p.frame.width * 0.1)
+    body.setAllowGravity(false)
+    body.updateFromGameObject()
+    p.setImmovable(true)
+    p.setDepth(7)
+    p.setData('meta', {
+      kind: 'powerup',
+      scored: false,
+      dangerTop: y - 20,
+      dangerBottom: y + 20,
+      lane: 'any',
+      noDamage: true,
+      isPowerup: true,
+    } satisfies HazardMeta)
+    p.setData('floatPhase', Math.random() * Math.PI * 2)
+    p.setData('floatBase', y)
+    p.setData('floatAmp', 10 * s)
+    attachQuantumPulse(this, p)
+  }
+
+  /**
+   * Elevated runway — double-jump up, run over ground hazards, drop off the end.
+   */
+  private spawnHighRunway() {
+    const s = this.softH()
+    const rise = LEDGER_RUNNER.platformRise * s
+    const top = this.groundY - rise
+    const len = Phaser.Math.Between(
+      Math.round(LEDGER_RUNNER.platformMinLen * s),
+      Math.round(LEDGER_RUNNER.platformMaxLen * s),
+    )
+    const tileW = 56 * s
+    const tiles = Math.max(4, Math.ceil(len / tileW))
+    const startX = this.scale.width + 50
+    const setLeft = startX - tileW / 2
+    const setRight = startX + (tiles - 1) * tileW + tileW / 2
+
+    for (let i = 0; i < tiles; i++) {
+      const x = startX + i * tileW
+      const tile = this.hazards.create(x, top - 6, 'runway') as Phaser.Physics.Arcade.Image
+      tile.setDisplaySize(tileW + 2, 16 * s)
+      const body = tile.body as Phaser.Physics.Arcade.Body
+      body.setAllowGravity(false)
+      body.enable = false // floor resolved manually — not a damage hitbox
+      tile.setDepth(5)
+      tile.setData('meta', {
+        kind: 'platform',
+        scored: false,
+        dangerTop: top - 20,
+        dangerBottom: top + 10,
+        lane: 'high',
+        noDamage: true,
+        isPlatform: true,
+        platformTop: top,
+        platformLeft: setLeft,
+        platformRight: setRight,
+      } satisfies HazardMeta)
+    }
+
+    // Ground hazards under the runway (free pass if you stay up top)
+    const mid = startX + (tiles * tileW) / 2
+    this.time.delayedCall(80, () => {
+      if (this.state !== 'playing') return
+      // Place a spike and a low beam under the middle of the runway
+      const spikeX = mid - 40
+      const h = 30 * s
+      const spike = this.hazards.create(
+        spikeX,
+        this.groundY - h / 2,
+        'spike',
+      ) as Phaser.Physics.Arcade.Image
+      this.fitHazardBody(spike, 36, h, 0.65, 0.78)
+      spike.setImmovable(true)
+      spike.setDepth(6)
+      spike.setData('meta', {
+        kind: 'spike',
+        scored: false,
+        dangerTop: this.groundY - h,
+        dangerBottom: this.groundY,
+        lane: 'ground',
+      } satisfies HazardMeta)
+
+      const gap = 25 * s
+      const bh = 110 * s
+      const bottom = this.groundY - gap
+      const beam = this.hazards.create(
+        mid + 50,
+        bottom - bh / 2,
+        'lowbeam',
+      ) as Phaser.Physics.Arcade.Image
+      this.fitHazardBody(beam, 50, bh, 0.9, 0.95)
+      beam.setImmovable(true)
+      beam.setDepth(6)
+      beam.setData('meta', {
+        kind: 'lowbeam',
+        scored: false,
+        dangerTop: bottom - bh,
+        dangerBottom: bottom,
+        lane: 'ground',
+        requiresSlide: true,
+      } satisfies HazardMeta)
+    })
+  }
+
   private spawnFloater() {
-    const s = this.hScale()
+    const s = this.softH()
     const x = this.scale.width + 40
     const size = 32 * s
     // Sit in mid jump band — not unreasonably high on tall screens
@@ -1361,6 +1721,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       scored: false,
       dangerTop: baseY - 36 * s,
       dangerBottom: baseY + 36 * s,
+      lane: 'any',
     }
     floater.setData('meta', meta)
     attachQuantumPulse(this, floater)
@@ -1373,45 +1734,57 @@ export class LedgerRunnerScene extends Phaser.Scene {
     for (const haz of children) {
       haz.x -= dx
 
-      // Floater bob
-      if (haz.texture.key === 'floater') {
+      // Scroll platform bounds with the tile
+      const metaMove = haz.getData('meta') as HazardMeta | undefined
+      if (metaMove?.isPlatform && metaMove.platformLeft != null) {
+        metaMove.platformLeft -= dx
+        metaMove.platformRight = (metaMove.platformRight ?? 0) - dx
+      }
+
+      // Floater / powerup bob
+      if (haz.texture.key === 'floater' || haz.texture.key === 'powerup') {
         const phase = (haz.getData('floatPhase') as number) + delta / 280
         haz.setData('floatPhase', phase)
         const base = haz.getData('floatBase') as number
-        const amp = haz.getData('floatAmp') as number
+        const amp = (haz.getData('floatAmp') as number) ?? 12
         haz.y = base + Math.sin(phase) * amp
       }
 
       const body = haz.body as Phaser.Physics.Arcade.Body | null
-      if (body) {
+      if (body && body.enable) {
         body.updateFromGameObject()
       }
 
       const meta = haz.getData('meta') as HazardMeta | undefined
       if (!meta || meta.scored) continue
+      if (meta.isPlatform || meta.isPowerup || meta.noDamage) continue
 
       // Cleared when fully past the runner
       if (haz.x + haz.displayWidth / 2 < this.player.x - 12) {
         meta.scored = true
 
-        // Perfect if player wasn't deep in the danger band when clearing
-        const feet = this.player.y + (this.player.body as Phaser.Physics.Arcade.Body).halfHeight
-        const head = this.player.y - (this.player.body as Phaser.Physics.Arcade.Body).halfHeight
+        const feet =
+          this.player.y + (this.player.body as Phaser.Physics.Arcade.Body).halfHeight
+        const head =
+          this.player.y - (this.player.body as Phaser.Physics.Arcade.Body).halfHeight
         let perfect = false
 
         if (meta.kind === 'spike') {
-          // Perfect if jumped high enough (feet well above spike tip)
-          perfect = feet < meta.dangerTop - 8
-        } else if (meta.kind === 'barrier') {
-          // Perfect if sliding (low profile) through
-          perfect = this.isSliding || head < meta.dangerBottom - 2
+          perfect = feet < meta.dangerTop - 8 || this.onPlatform
+        } else if (meta.kind === 'barrier' || meta.kind === 'lowbeam') {
+          perfect = this.isSliding || this.onPlatform
         } else {
-          // Floater: perfect if not near vertical center
           const mid = (meta.dangerTop + meta.dangerBottom) / 2
           perfect = Math.abs(this.player.y - mid) > 28
         }
 
-        this.registerClear(perfect)
+        // Don't score ground clears while flying over on runway
+        if (meta.lane === 'ground' && this.onPlatform) {
+          this.registerClear(true)
+        } else {
+          this.registerClear(perfect)
+        }
+        void head
       }
     }
   }

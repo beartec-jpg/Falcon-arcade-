@@ -55,7 +55,7 @@ export function LedgerRunnerPage() {
 
   const statusBody =
     gameState === 'playing'
-      ? 'SPACE or tap most of the screen to jump (double-jump in air). ↓ or tap the bottom edge to slide under ledgers.'
+      ? 'Jump spikes · slide under low beams (required). Grab SUPER for a free hit. Double-jump onto high runways to run over ground hazards.'
       : gameState === 'gameover'
         ? `Final score ${score}. Reach ${LEDGER_RUNNER_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
         : `Horizontal auto-runner — jump quantum spikes, slide under bad ledgers, dodge floaters. Claim unlocks at ${LEDGER_RUNNER_REWARD_THRESHOLD} points.`
