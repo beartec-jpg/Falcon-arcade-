@@ -91,6 +91,26 @@ type ObstacleMeta = {
 
 type GateBias = 'high' | 'mid' | 'low' | 'random'
 
+/**
+ * Structured spawn waves — one family per batch so you never get
+ * floaters stacked inside windows, etc. Rotates as a playlist.
+ */
+type WavePattern =
+  | 'ledger'
+  | 'ledger_highlow'
+  | 'spires'
+  | 'quantum'
+  | 'float'
+  | 'weave'
+  | 'windows'
+  | 'chevrons'
+  | 'diamonds'
+  | 'shards'
+  | 'jaws'
+  | 'lasers'
+  | 'wind'
+  | 'portal_skip'
+
 type ObstacleTex =
   | 'ledger-block'
   | 'quantum-bar'
@@ -162,6 +182,13 @@ export class FalconFlightScene extends Phaser.Scene {
   private invulnUntil = 0
   /** Mid-portal blink: vanish → skip next hazard → reappear. */
   private teleporting = false
+
+  // ── Wave director (structured progression) ─────────────
+  private waveIndex = 0
+  private wavePattern: WavePattern = 'ledger'
+  private waveRemaining = 0
+  private waveStep = 0
+  private waveLabelUntil = 0
 
   constructor() {
     super('FalconFlightScene')
@@ -320,6 +347,18 @@ export class FalconFlightScene extends Phaser.Scene {
     this.spawnObstaclesIfNeeded()
     this.updateObstacles(delta)
     this.cullObstacles()
+
+    // Clear wave banner once its timer ends
+    if (
+      this.waveLabelUntil > 0 &&
+      this.time.now > this.waveLabelUntil &&
+      this.state === 'playing'
+    ) {
+      this.waveLabelUntil = 0
+      this.hudHint.setText(
+        'Touch above/below bird · weave gaps · claim at 500',
+      )
+    }
   }
 
   // ── setup ──────────────────────────────────────────────
@@ -775,6 +814,11 @@ export class FalconFlightScene extends Phaser.Scene {
     this.obstacles.clear(true, true)
     this.lastGapCenterY = 0
     this.teleporting = false
+    this.waveIndex = 0
+    this.waveRemaining = 0
+    this.waveStep = 0
+    this.wavePattern = 'ledger'
+    this.waveLabelUntil = 0
     this.pointerUpHeld = false
     this.pointerDownHeld = false
     this.touchZone = 'none'
@@ -799,6 +843,11 @@ export class FalconFlightScene extends Phaser.Scene {
     this.nextSpawnAt = this.time.now + 900
     this.invulnUntil = this.time.now + 700
     this.lastGapCenterY = this.falcon.y
+    this.waveIndex = 0
+    this.waveRemaining = 0
+    this.waveStep = 0
+    this.wavePattern = 'ledger'
+    this.waveLabelUntil = 0
     this.falconVisual.setAlpha(1)
     this.falconVisual.setAngle(0)
     this.tweens.killTweensOf(this.falconVisual)
@@ -1008,68 +1057,226 @@ export class FalconFlightScene extends Phaser.Scene {
     return Math.min(gap, maxGap)
   }
 
+  /**
+   * Patterns unlocked by difficulty — early game is clean gates,
+   * later waves introduce specials. Always one family per wave.
+   */
+  private unlockedWavePatterns(): WavePattern[] {
+    const d = this.difficulty
+    // Intro curriculum (always available)
+    const list: WavePattern[] = [
+      'ledger',
+      'ledger_highlow',
+      'spires',
+      'quantum',
+    ]
+    if (d >= 0.1) list.push('float', 'weave')
+    if (d >= 0.18) list.push('windows', 'chevrons')
+    if (d >= 0.28) list.push('diamonds', 'shards')
+    if (d >= 0.38) list.push('jaws', 'lasers')
+    if (d >= 0.48) list.push('wind', 'portal_skip')
+    // Late-game: extra ledger beats so the playlist doesn't feel only chaos
+    if (d >= 0.55) list.push('ledger', 'weave', 'spires')
+    return list
+  }
+
+  private waveDisplayName(p: WavePattern): string {
+    switch (p) {
+      case 'ledger':
+        return 'LEDGER GATES'
+      case 'ledger_highlow':
+        return 'HIGH / LOW GATES'
+      case 'spires':
+        return 'CRYSTAL SPIRES'
+      case 'quantum':
+        return 'QUANTUM BARS'
+      case 'float':
+        return 'FLOATERS'
+      case 'weave':
+        return 'WEAVE COLUMNS'
+      case 'windows':
+        return 'DOUBLE WINDOWS'
+      case 'chevrons':
+        return 'CHEVRON GATES'
+      case 'diamonds':
+        return 'DIAMOND SAWS'
+      case 'shards':
+        return 'SHARD CLOUDS'
+      case 'jaws':
+        return 'CLOSING JAWS'
+      case 'lasers':
+        return 'LASER SWEEP'
+      case 'wind':
+        return 'WIND SHEAR'
+      case 'portal_skip':
+        return 'WARP PORTALS'
+      default:
+        return 'HAZARDS'
+    }
+  }
+
+  /** How many spawns in this wave + base spacing multiplier. */
+  private wavePlan(p: WavePattern): { count: number; spacing: number; coins: boolean } {
+    const d = this.difficulty
+    switch (p) {
+      case 'ledger':
+        return { count: 3 + Math.floor(d * 2), spacing: 1.05, coins: true }
+      case 'ledger_highlow':
+        return { count: 3 + Math.floor(d * 2), spacing: 1.0, coins: true }
+      case 'spires':
+        return { count: 3 + Math.floor(d * 2), spacing: 1.08, coins: true }
+      case 'quantum':
+        return { count: 3 + Math.floor(d), spacing: 1.0, coins: true }
+      case 'float':
+        return { count: 3 + Math.floor(d), spacing: 1.12, coins: false }
+      case 'weave':
+        return { count: 2 + Math.floor(d), spacing: 1.35, coins: true }
+      case 'windows':
+        return { count: 2 + Math.floor(d * 1.5), spacing: 1.2, coins: true }
+      case 'chevrons':
+        return { count: 3, spacing: 1.1, coins: true }
+      case 'diamonds':
+        return { count: 2 + Math.floor(d * 2), spacing: 1.15, coins: false }
+      case 'shards':
+        return { count: 2 + Math.floor(d), spacing: 1.2, coins: false }
+      case 'jaws':
+        return { count: 2 + Math.floor(d), spacing: 1.25, coins: true }
+      case 'lasers':
+        return { count: 2 + Math.floor(d * 1.5), spacing: 1.1, coins: false }
+      case 'wind':
+        return { count: 2, spacing: 1.15, coins: false }
+      case 'portal_skip':
+        // portal + forced skip target handled as 2 steps
+        return { count: 2, spacing: 0.55, coins: false }
+      default:
+        return { count: 3, spacing: 1, coins: false }
+    }
+  }
+
+  private startNextWave() {
+    const unlocked = this.unlockedWavePatterns()
+    this.wavePattern = unlocked[this.waveIndex % unlocked.length]
+    this.waveIndex += 1
+    this.waveStep = 0
+    const plan = this.wavePlan(this.wavePattern)
+    this.waveRemaining = plan.count
+
+    // Brief HUD cue so waves read as progression
+    this.waveLabelUntil = this.time.now + 1400
+    if (this.hudHint && this.state === 'playing') {
+      this.hudHint.setText(`WAVE · ${this.waveDisplayName(this.wavePattern)}`)
+    }
+  }
+
+  private spawnWaveHazard(): { intervalScale: number; coins: boolean } {
+    const plan = this.wavePlan(this.wavePattern)
+    const p = this.wavePattern
+    const step = this.waveStep
+
+    switch (p) {
+      case 'ledger':
+        this.spawnLedgerPair(
+          this.currentGapHeight(false),
+          this.pickBias(['high', 'mid', 'low', 'random']),
+        )
+        break
+      case 'ledger_highlow':
+        // Alternate high / low so the wave has readable rhythm
+        this.spawnLedgerPair(
+          this.currentGapHeight(true),
+          step % 2 === 0 ? 'high' : 'low',
+        )
+        break
+      case 'spires':
+        this.spawnSpires()
+        break
+      case 'quantum':
+        this.spawnQuantumBarrier()
+        break
+      case 'float':
+        this.spawnFloatingBlock()
+        break
+      case 'weave':
+        this.spawnWeaveGates()
+        break
+      case 'windows':
+        this.spawnDoubleWindows()
+        break
+      case 'chevrons':
+        this.spawnChevrons()
+        break
+      case 'diamonds':
+        this.spawnDiamondSaw()
+        break
+      case 'shards':
+        this.spawnShardCloud()
+        break
+      case 'jaws':
+        this.spawnClosingJaws()
+        break
+      case 'lasers':
+        this.spawnLaserSweep()
+        break
+      case 'wind':
+        this.spawnWindGust()
+        break
+      case 'portal_skip':
+        if (step === 0) {
+          this.spawnTeleportPortal()
+        } else {
+          // Solid target right after portal — never another special
+          if (Math.random() < 0.5) this.spawnSpires()
+          else
+            this.spawnLedgerPair(
+              this.currentGapHeight(true),
+              this.pickBias(['high', 'low']),
+            )
+        }
+        break
+    }
+
+    this.waveStep += 1
+    this.waveRemaining -= 1
+    return { intervalScale: plan.spacing, coins: plan.coins }
+  }
+
   private spawnObstaclesIfNeeded() {
     if (this.time.now < this.nextSpawnAt) return
-    const interval = Phaser.Math.Linear(
+    if (this.teleporting) return
+
+    const baseInterval = Phaser.Math.Linear(
       FALCON_FLIGHT.spawnMaxMs,
       FALCON_FLIGHT.spawnMinMs,
       this.difficulty,
     )
 
-    /**
-     * Weighted hazard pick — silhouettes + behaviors differ.
-     * Harder / special patterns unlock as difficulty rises.
-     */
-    const d = this.difficulty
-    const roll = Math.random()
-    let forcedNextMs: number | null = null
-
-    if (roll < 0.07 + d * 0.03) {
-      this.spawnTeleportPortal()
-      // Guarantee a real hazard right after so the portal has something to skip
-      forcedNextMs = 520
-    } else if (roll < 0.14 + d * 0.04) {
-      this.spawnLaserSweep()
-    } else if (roll < 0.21 + d * 0.05) {
-      this.spawnClosingJaws()
-    } else if (roll < 0.28 + d * 0.03) {
-      this.spawnWindGust()
-    } else if (roll < 0.35 + d * 0.04) {
-      this.spawnQuantumBarrier()
-    } else if (roll < 0.43 + d * 0.04) {
-      this.spawnSpires()
-    } else if (roll < 0.51 + d * 0.04) {
-      this.spawnDiamondSaw()
-    } else if (roll < 0.58 + d * 0.03) {
-      this.spawnShardCloud()
-    } else if (roll < 0.65 + d * 0.03) {
-      this.spawnDoubleWindows()
-    } else if (roll < 0.71 + d * 0.03) {
-      this.spawnChevrons()
-    } else if (roll < 0.78 + d * 0.03) {
-      this.spawnFloatingBlock()
-    } else if (roll < 0.85 + d * 0.03) {
-      this.spawnWeaveGates()
-    } else if (roll < 0.92) {
-      this.spawnLedgerPair(
-        this.currentGapHeight(true),
-        this.pickBias(['high', 'low']),
-      )
-    } else {
-      this.spawnLedgerPair(
-        this.currentGapHeight(false),
-        this.pickBias(['high', 'mid', 'low', 'random']),
-      )
+    // Start / advance wave when the current batch is done
+    if (this.waveRemaining <= 0) {
+      this.startNextWave()
     }
 
-    // Occasional safe-lane coin trail toward the last gap center
-    if (Math.random() < 0.35 && this.lastGapCenterY > 0) {
+    const { intervalScale, coins } = this.spawnWaveHazard()
+
+    // Coins only on clean gap waves, and only mid-wave (not cluttering specials)
+    if (
+      coins &&
+      this.lastGapCenterY > 0 &&
+      this.waveStep >= 2 &&
+      this.waveRemaining >= 0 &&
+      Math.random() < 0.45
+    ) {
       this.spawnSafeLaneCoins(this.lastGapCenterY)
     }
 
+    // Spacing inside a wave vs breath between waves
+    const betweenWaves = this.waveRemaining <= 0
+    const gapMul = betweenWaves
+      ? 1.35 + (1 - this.difficulty) * 0.25
+      : intervalScale
+
     this.nextSpawnAt =
       this.time.now +
-      (forcedNextMs ?? interval * Phaser.Math.FloatBetween(0.88, 1.12))
+      baseInterval * gapMul * Phaser.Math.FloatBetween(0.94, 1.06)
   }
 
   private pickBias(options: GateBias[]): GateBias {
