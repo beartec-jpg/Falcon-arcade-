@@ -1004,9 +1004,19 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (!meta) return true
     // Pits / voids handled via fall logic, not body overlap
     if (meta.isPit) return false
-    // Elevated runway: ignore ground-lane hazards
-    if (this.onPlatform && meta.lane === 'ground') return false
-    // On ground: ignore high-only pieces (none currently)
+    // Elevated runway is a full safe path — ignore anything below the deck
+    if (this.onPlatform) {
+      if (meta.lane === 'ground') return false
+      if (meta.isPlatform || meta.noDamage) return false
+      // Extra: any hazard whose top is below the platform surface
+      if (
+        meta.dangerBottom <= this.activePlatformTop + 4 ||
+        haz.y + haz.displayHeight / 2 < this.activePlatformTop + 8
+      ) {
+        return false
+      }
+    }
+    // On ground: ignore high-only pieces
     if (!this.onPlatform && meta.lane === 'high') return false
     return true
   }
@@ -1244,11 +1254,20 @@ export class LedgerRunnerScene extends Phaser.Scene {
       if (!meta?.isPlatform || meta.platformTop == null) continue
       const left = meta.platformLeft ?? haz.x - haz.displayWidth / 2
       const right = meta.platformRight ?? haz.x + haz.displayWidth / 2
-      if (px < left - 4 || px > right + 4) continue
+      if (px < left - 6 || px > right + 6) continue
       const top = meta.platformTop
       if (best === null || top < best) best = top
     }
     return best
+  }
+
+  /**
+   * Visual foot drop below body center (emblem boots sit lower than the hitbox).
+   * Used so feet rest on the deck instead of poking through.
+   */
+  private visualFootExtent(): number {
+    const sc = Math.abs(this.playerVisual?.scaleY || 1)
+    return 26 * sc
   }
 
   private updateGrounded() {
@@ -1262,7 +1281,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const platTop = this.findPlatformTop()
     let floor = this.groundY
     this.onPlatform = false
-    if (platTop != null && vy >= -30 && feet >= platTop - 14 && feet <= platTop + 18) {
+    // Generous vertical snap so landing on the deck is reliable
+    if (
+      platTop != null &&
+      vy >= -40 &&
+      feet >= platTop - 22 &&
+      feet <= platTop + 28
+    ) {
       if (platTop < this.groundY - 40) {
         floor = platTop
         this.onPlatform = true
@@ -1294,6 +1319,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const grounded = !holeOpen && feet >= floor - 3.5 && vy >= -20
 
     if (grounded) {
+      // Physics feet on surface
       this.player.y = floor - halfH
       body.updateFromGameObject()
       this.player.setVelocityY(0)
@@ -1343,9 +1369,16 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (!this.playerVisual || !this.player || !this.runnerEmblem) return
 
     this.playerVisual.x = this.player.x
-    this.playerVisual.y = this.isSliding
-      ? this.floorY() - this.crouchH() / 2
-      : this.player.y
+    // Sit visual feet on the walk surface (emblem boots hang below hitbox center)
+    if (this.onGround || this.isSliding) {
+      const foot = this.visualFootExtent()
+      const surface = this.floorY()
+      // When sliding, crouch emblem is shorter
+      const footDown = this.isSliding ? foot * 0.72 : foot
+      this.playerVisual.y = surface - footDown
+    } else {
+      this.playerVisual.y = this.player.y
+    }
 
     if (this.state === 'playing' && this.onGround && !this.isSliding) {
       this.runBob += delta * (1 + this.difficulty * 0.8)
@@ -1757,71 +1790,88 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   /**
    * Elevated runway — double-jump up, run over ground hazards, drop off the end.
+   * Surface Y is the *top* of the tiles so feet sit on the deck, not through it.
    */
   private spawnHighRunway() {
     const s = this.softH()
     const rise = LEDGER_RUNNER.platformRise * s
-    const top = this.groundY - rise
+    /** Walkable surface (top edge of runway tiles). */
+    const surfaceY = this.groundY - rise
+    const tileH = 18 * s
     const len = Phaser.Math.Between(
       Math.round(LEDGER_RUNNER.platformMinLen * s),
       Math.round(LEDGER_RUNNER.platformMaxLen * s),
     )
     const tileW = 56 * s
-    const tiles = Math.max(4, Math.ceil(len / tileW))
+    const tiles = Math.max(5, Math.ceil(len / tileW))
     const startX = this.scale.width + 50
     const setLeft = startX - tileW / 2
     const setRight = startX + (tiles - 1) * tileW + tileW / 2
 
     for (let i = 0; i < tiles; i++) {
       const x = startX + i * tileW
-      const tile = this.hazards.create(x, top - 6, 'runway') as Phaser.Physics.Arcade.Image
-      tile.setDisplaySize(tileW + 2, 16 * s)
+      // Center so the *top* of the sprite is exactly surfaceY
+      const tile = this.hazards.create(
+        x,
+        surfaceY + tileH / 2,
+        'runway',
+      ) as Phaser.Physics.Arcade.Image
+      tile.setDisplaySize(tileW + 2, tileH)
       const body = tile.body as Phaser.Physics.Arcade.Body
       body.setAllowGravity(false)
       body.enable = false // floor resolved manually — not a damage hitbox
-      tile.setDepth(5)
+      tile.setDepth(8)
       tile.setData('meta', {
         kind: 'platform',
         scored: false,
-        dangerTop: top - 20,
-        dangerBottom: top + 10,
+        dangerTop: surfaceY - 20,
+        dangerBottom: surfaceY + tileH,
         lane: 'high',
         noDamage: true,
         isPlatform: true,
-        platformTop: top,
+        platformTop: surfaceY,
         platformLeft: setLeft,
         platformRight: setRight,
       } satisfies HazardMeta)
     }
 
-    // Ground hazards under the runway (free pass if you stay up top)
-    const mid = startX + (tiles * tileW) / 2
-    this.time.delayedCall(80, () => {
+    // Fill under the runway with ground hazards + floaters (safe if you stay up top)
+    const span = setRight - setLeft
+    const mid = (setLeft + setRight) / 2
+    this.time.delayedCall(60, () => {
       if (this.state !== 'playing') return
-      // Place a spike and a low beam under the middle of the runway
-      const spikeX = mid - 40
-      const h = 30 * s
-      const spike = this.hazards.create(
-        spikeX,
-        this.groundY - h / 2,
-        'spike',
-      ) as Phaser.Physics.Arcade.Image
-      this.fitHazardBody(spike, 36, h, 0.65, 0.78)
-      spike.setImmovable(true)
-      spike.setDepth(6)
-      spike.setData('meta', {
-        kind: 'spike',
-        scored: false,
-        dangerTop: this.groundY - h,
-        dangerBottom: this.groundY,
-        lane: 'ground',
-      } satisfies HazardMeta)
 
+      // Spikes on the floor under the bridge
+      const spikeCount = 2 + Math.floor(span / (140 * s))
+      for (let i = 0; i < spikeCount; i++) {
+        const sx =
+          setLeft +
+          40 * s +
+          (i + 0.5) * ((span - 80 * s) / spikeCount)
+        const h = 32 * s
+        const spike = this.hazards.create(
+          sx,
+          this.groundY - h / 2,
+          'spike',
+        ) as Phaser.Physics.Arcade.Image
+        this.fitHazardBody(spike, 36, h, 0.7, 0.85)
+        spike.setImmovable(true)
+        spike.setDepth(6)
+        spike.setData('meta', {
+          kind: 'spike',
+          scored: false,
+          dangerTop: this.groundY - h,
+          dangerBottom: this.groundY,
+          lane: 'ground',
+        } satisfies HazardMeta)
+      }
+
+      // Low beam on the floor
       const gap = 25 * s
       const bh = 110 * s
       const bottom = this.groundY - gap
       const beam = this.hazards.create(
-        mid + 50,
+        mid + 30 * s,
         bottom - bh / 2,
         'lowbeam',
       ) as Phaser.Physics.Arcade.Image
@@ -1836,6 +1886,46 @@ export class LedgerRunnerScene extends Phaser.Scene {
         lane: 'ground',
         requiresSlide: true,
       } satisfies HazardMeta)
+
+      // Floating orbs in the air *under* the runway (between ground and deck)
+      const airCount = 2 + Math.floor(span / (180 * s))
+      for (let i = 0; i < airCount; i++) {
+        const fx =
+          setLeft +
+          50 * s +
+          (i + 0.5) * ((span - 100 * s) / airCount)
+        const midAir =
+          this.groundY -
+          Phaser.Math.Between(Math.round(45 * s), Math.round(rise - 28 * s))
+        const size = 30 * s
+        const floater = this.hazards.create(
+          fx,
+          midAir,
+          'floater',
+        ) as Phaser.Physics.Arcade.Image
+        floater.setDisplaySize(size, size)
+        const fBody = floater.body as Phaser.Physics.Arcade.Body
+        const frameW = floater.frame.width
+        const sourceR = frameW * 0.35
+        fBody.setCircle(sourceR)
+        fBody.setOffset((frameW - sourceR * 2) / 2, (frameW - sourceR * 2) / 2)
+        fBody.setAllowGravity(false)
+        fBody.updateFromGameObject()
+        floater.setImmovable(true)
+        floater.setDepth(6)
+        floater.setData('floatPhase', Math.random() * Math.PI * 2)
+        floater.setData('floatBase', midAir)
+        floater.setData('floatAmp', Phaser.Math.Between(8, 16) * s)
+        floater.setData('meta', {
+          kind: 'floater',
+          scored: false,
+          dangerTop: midAir - 20 * s,
+          dangerBottom: midAir + 20 * s,
+          // Ground lane = ignored while on the high runway
+          lane: 'ground',
+        } satisfies HazardMeta)
+        attachQuantumPulse(this, floater)
+      }
     })
   }
 
