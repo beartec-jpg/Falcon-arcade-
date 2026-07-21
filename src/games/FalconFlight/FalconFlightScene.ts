@@ -51,6 +51,11 @@ type ObstacleKind =
   | 'shards'
   | 'windows'
   | 'chevrons'
+  | 'portal'
+  | 'laser'
+  | 'jaws'
+  | 'wind'
+  | 'coin'
 
 type ObstacleMeta = {
   kind: ObstacleKind
@@ -59,12 +64,29 @@ type ObstacleMeta = {
   gapHalf?: number
   /** Shared id so multi-piece sets only award one clear bonus */
   setId?: number
-  /** Optional vertical bob while scrolling */
-  motion?: 'sineY'
+  /** Optional vertical bob / special motion while scrolling */
+  motion?: 'sineY' | 'jaws' | 'laser'
   baseY?: number
   amp?: number
   phase?: number
   bobSpeed?: number
+  /** Non-lethal (portal core, wind, coins, lane markers) */
+  noDamage?: boolean
+  isPortal?: boolean
+  isWind?: boolean
+  /** +1 shove up, -1 shove down (px/s scale) */
+  windForce?: number
+  /** Closing jaws */
+  gapStart?: number
+  gapMin?: number
+  closeRate?: number
+  jawProgress?: number
+  jawRole?: 'top' | 'bot'
+  /** Laser on/off pulse */
+  laserActive?: boolean
+  /** Coin value */
+  coinValue?: number
+  used?: boolean
 }
 
 type GateBias = 'high' | 'mid' | 'low' | 'random'
@@ -77,6 +99,10 @@ type ObstacleTex =
   | 'flight-diamond'
   | 'flight-shard'
   | 'flight-chevron'
+  | 'flight-portal'
+  | 'flight-laser'
+  | 'flight-wind'
+  | 'flight-coin'
 
 /**
  * Falcon Flight — horizontal auto-scroller with juice pass.
@@ -134,6 +160,8 @@ export class FalconFlightScene extends Phaser.Scene {
   private gameOverTimer?: Phaser.Time.TimerEvent
   /** Brief spawn protection after launch / restart. */
   private invulnUntil = 0
+  /** Mid-portal blink: vanish → skip next hazard → reappear. */
+  private teleporting = false
 
   constructor() {
     super('FalconFlightScene')
@@ -180,8 +208,10 @@ export class FalconFlightScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.falcon,
       this.obstacles,
-      () => this.handleCrash(),
-      () => this.time.now >= this.invulnUntil,
+      (_f, o) =>
+        this.onObstacleOverlap(o as Phaser.Physics.Arcade.Image),
+      (_f, o) =>
+        this.shouldProcessObstacle(o as Phaser.Physics.Arcade.Image),
       this,
     )
 
@@ -202,7 +232,7 @@ export class FalconFlightScene extends Phaser.Scene {
         [
           'Fly forward automatically.',
           'Touch above the falcon to climb · below to dive (or ↑↓ / W S).',
-          'Thread spires, diamonds, shards, windows & ledger gates.',
+          'Spires, lasers, jaws, wind & portals — fly a gold portal to blink past the next hazard.',
           `Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock Claim.`,
         ],
         () => {
@@ -407,6 +437,70 @@ export class FalconFlightScene extends Phaser.Scene {
       g.lineStyle(1.5, FALCON_COLORS.quantum, 0.5)
       g.lineBetween(10, h / 2, w - 12, h / 2)
       g.generateTexture('flight-chevron', w, h)
+      g.destroy()
+    }
+
+    // Teleport portal ring
+    if (!this.textures.exists('flight-portal')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const s = 72
+      const c = s / 2
+      g.lineStyle(8, FALCON_COLORS.bronzeBright, 1)
+      g.strokeCircle(c, c, 28)
+      g.lineStyle(4, FALCON_COLORS.quantum, 0.95)
+      g.strokeCircle(c, c, 22)
+      g.lineStyle(2, FALCON_COLORS.quantumHot, 0.7)
+      g.strokeCircle(c, c, 14)
+      g.fillStyle(FALCON_COLORS.quantum, 0.2)
+      g.fillCircle(c, c, 12)
+      g.generateTexture('flight-portal', s, s)
+      g.destroy()
+    }
+
+    // Horizontal laser bar
+    if (!this.textures.exists('flight-laser')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 120
+      const h = 14
+      g.fillStyle(FALCON_COLORS.danger, 0.95)
+      g.fillRoundedRect(0, 2, w, h - 4, 4)
+      g.fillStyle(0xffffff, 0.85)
+      g.fillRoundedRect(8, 5, w - 16, 4, 2)
+      g.lineStyle(1.5, FALCON_COLORS.quantumHot, 0.9)
+      g.strokeRoundedRect(0, 2, w, h - 4, 4)
+      g.generateTexture('flight-laser', w, h)
+      g.destroy()
+    }
+
+    // Wind gust field
+    if (!this.textures.exists('flight-wind')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 64
+      const h = 96
+      g.fillStyle(FALCON_COLORS.quantum, 0.12)
+      g.fillRoundedRect(0, 0, w, h, 8)
+      g.lineStyle(2, FALCON_COLORS.quantum, 0.55)
+      for (let i = 0; i < 5; i++) {
+        const y = 12 + i * 16
+        g.lineBetween(10, y, w - 14, y - 6)
+        g.lineBetween(w - 14, y - 6, w - 8, y)
+      }
+      g.generateTexture('flight-wind', w, h)
+      g.destroy()
+    }
+
+    // Safe-lane coin / marker
+    if (!this.textures.exists('flight-coin')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const s = 20
+      const c = s / 2
+      g.fillStyle(FALCON_COLORS.bronzeBright, 1)
+      g.fillCircle(c, c, 8)
+      g.lineStyle(2, FALCON_COLORS.bronze, 1)
+      g.strokeCircle(c, c, 8)
+      g.fillStyle(0xf0c14a, 0.9)
+      g.fillCircle(c, c, 3.5)
+      g.generateTexture('flight-coin', s, s)
       g.destroy()
     }
   }
@@ -630,7 +724,7 @@ export class FalconFlightScene extends Phaser.Scene {
     if (mode === 'ready') {
       title.setText('Falcon Flight')
       body.setText(
-        'Fly forward automatically. Touch above/below the falcon (or ↑↓). Expect spires, diamonds, shards, and ledger gates.',
+        'Fly forward. Touch above/below the bird. Gold portals warp you past the next hazard — also lasers, jaws, wind & spires.',
       )
       cta.setText('TAP / SPACE TO LAUNCH')
     } else {
@@ -680,6 +774,7 @@ export class FalconFlightScene extends Phaser.Scene {
 
     this.obstacles.clear(true, true)
     this.lastGapCenterY = 0
+    this.teleporting = false
     this.pointerUpHeld = false
     this.pointerDownHeld = false
     this.touchZone = 'none'
@@ -922,28 +1017,40 @@ export class FalconFlightScene extends Phaser.Scene {
     )
 
     /**
-     * Weighted hazard pick — silhouettes differ (spires, diamonds, shards…)
-     * not just recolored boxes. Harder patterns unlock as difficulty rises.
+     * Weighted hazard pick — silhouettes + behaviors differ.
+     * Harder / special patterns unlock as difficulty rises.
      */
     const d = this.difficulty
     const roll = Math.random()
-    if (roll < 0.1 + d * 0.06) {
+    let forcedNextMs: number | null = null
+
+    if (roll < 0.07 + d * 0.03) {
+      this.spawnTeleportPortal()
+      // Guarantee a real hazard right after so the portal has something to skip
+      forcedNextMs = 520
+    } else if (roll < 0.14 + d * 0.04) {
+      this.spawnLaserSweep()
+    } else if (roll < 0.21 + d * 0.05) {
+      this.spawnClosingJaws()
+    } else if (roll < 0.28 + d * 0.03) {
+      this.spawnWindGust()
+    } else if (roll < 0.35 + d * 0.04) {
       this.spawnQuantumBarrier()
-    } else if (roll < 0.2 + d * 0.05) {
+    } else if (roll < 0.43 + d * 0.04) {
       this.spawnSpires()
-    } else if (roll < 0.3 + d * 0.06) {
+    } else if (roll < 0.51 + d * 0.04) {
       this.spawnDiamondSaw()
-    } else if (roll < 0.4 + d * 0.05) {
+    } else if (roll < 0.58 + d * 0.03) {
       this.spawnShardCloud()
-    } else if (roll < 0.5 + d * 0.04) {
+    } else if (roll < 0.65 + d * 0.03) {
       this.spawnDoubleWindows()
-    } else if (roll < 0.58 + d * 0.05) {
+    } else if (roll < 0.71 + d * 0.03) {
       this.spawnChevrons()
-    } else if (roll < 0.68 + d * 0.04) {
+    } else if (roll < 0.78 + d * 0.03) {
       this.spawnFloatingBlock()
-    } else if (roll < 0.78 + d * 0.05) {
+    } else if (roll < 0.85 + d * 0.03) {
       this.spawnWeaveGates()
-    } else if (roll < 0.88) {
+    } else if (roll < 0.92) {
       this.spawnLedgerPair(
         this.currentGapHeight(true),
         this.pickBias(['high', 'low']),
@@ -955,8 +1062,14 @@ export class FalconFlightScene extends Phaser.Scene {
       )
     }
 
+    // Occasional safe-lane coin trail toward the last gap center
+    if (Math.random() < 0.35 && this.lastGapCenterY > 0) {
+      this.spawnSafeLaneCoins(this.lastGapCenterY)
+    }
+
     this.nextSpawnAt =
-      this.time.now + interval * Phaser.Math.FloatBetween(0.88, 1.12)
+      this.time.now +
+      (forcedNextMs ?? interval * Phaser.Math.FloatBetween(0.88, 1.12))
   }
 
   private pickBias(options: GateBias[]): GateBias {
@@ -1385,6 +1498,189 @@ export class FalconFlightScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Gold/cyan ring portal — fly the core to blink past the next hazard.
+   * Rim top/bottom still kill if you clip them.
+   */
+  private spawnTeleportPortal() {
+    const { width, height } = this.scale
+    const x = width + 56
+    const s = this.softH()
+    const hole = Math.max(this.currentGapHeight(false) * 0.95, 88 * s)
+    const cy = this.pickGapCenter(hole, this.pickBias(['high', 'mid', 'low', 'random']))
+    const setId = this.nextSetId()
+
+    // Deadly rim slabs (leave a circular-feeling hole)
+    const topH = Math.max(24, cy - hole / 2)
+    const botY = cy + hole / 2
+    const botH = Math.max(24, height - botY)
+    const rimMeta: ObstacleMeta = {
+      kind: 'portal',
+      scored: false,
+      gapCenterY: cy,
+      gapHalf: hole / 2,
+      setId,
+    }
+    const top = this.spawnTex(x, topH / 2, 40, topH, 'quantum-bar', 0.85, 0.92)
+    const bot = this.spawnTex(x, botY + botH / 2, 40, botH, 'quantum-bar', 0.85, 0.92)
+    top.setData('meta', rimMeta)
+    bot.setData('meta', rimMeta)
+    attachQuantumPulse(this, top)
+    attachQuantumPulse(this, bot)
+
+    // Visual ring + teleport trigger (safe)
+    const ringSize = hole * 0.95
+    const ring = this.spawnTex(x, cy, ringSize, ringSize, 'flight-portal', 0.35, 0.35)
+    const ringMeta: ObstacleMeta = {
+      kind: 'portal',
+      scored: false,
+      noDamage: true,
+      gapCenterY: cy,
+      gapHalf: hole / 2,
+      setId,
+    }
+    ring.setData('meta', ringMeta)
+    ring.setDepth(6)
+    attachQuantumPulse(this, ring)
+
+    const core = this.spawnTex(x, cy, hole * 0.42, hole * 0.42, 'flight-portal', 0.9, 0.9)
+    core.setAlpha(0.35)
+    core.setData('meta', {
+      kind: 'portal',
+      scored: false,
+      noDamage: true,
+      isPortal: true,
+      gapCenterY: cy,
+      gapHalf: hole / 2,
+      setId,
+    } satisfies ObstacleMeta)
+    core.setDepth(7)
+  }
+
+  /** Horizontal laser that sweeps vertically and pulses on/off. */
+  private spawnLaserSweep() {
+    const { width, height } = this.scale
+    const x = width + 60
+    const s = this.softH()
+    const barW = Math.min(width * 0.55, 200 * s)
+    const barH = 12 * s
+    const margin = 50 * s
+    const baseY = Phaser.Math.FloatBetween(margin, height - margin)
+    const amp = Phaser.Math.Between(Math.round(50 * s), Math.round(110 * s))
+    const setId = this.nextSetId()
+    const meta: ObstacleMeta = {
+      kind: 'laser',
+      scored: false,
+      gapCenterY: baseY,
+      gapHalf: 40,
+      setId,
+      motion: 'laser',
+      baseY,
+      amp,
+      phase: Math.random() * Math.PI * 2,
+      bobSpeed: 1.6 + this.difficulty * 1.2,
+      laserActive: true,
+    }
+    const laser = this.spawnTex(x, baseY, barW, barH, 'flight-laser', 0.92, 0.75)
+    laser.setData('meta', meta)
+    laser.setDepth(6)
+  }
+
+  /** Ledger jaws that close as they approach — gap shrinks over time. */
+  private spawnClosingJaws() {
+    const { width, height } = this.scale
+    const x = width + 50
+    const gapStart = this.currentGapHeight(false) * 1.05
+    const gapMin = Math.max(
+      FALCON_FLIGHT.gapFloorPx * this.softH() + FALCON_FLIGHT.playerRadius * 2 + 20,
+      gapStart * 0.42,
+    )
+    const gapCenter = this.pickGapCenter(gapStart, this.pickBias(['high', 'low', 'mid']))
+    const setId = this.nextSetId()
+    const topBottom = gapCenter - gapStart / 2
+    const bottomTop = gapCenter + gapStart / 2
+    const blockW = 56
+    const topH = Math.max(28, topBottom)
+    const botH = Math.max(28, height - bottomTop)
+
+    const shared = {
+      kind: 'jaws' as const,
+      scored: false,
+      gapCenterY: gapCenter,
+      gapHalf: gapStart / 2,
+      setId,
+      motion: 'jaws' as const,
+      gapStart,
+      gapMin,
+      closeRate: 0.22 + this.difficulty * 0.28,
+      jawProgress: 0,
+    }
+
+    const top = this.spawnTex(x, topH / 2, blockW, topH, 'ledger-block')
+    const bot = this.spawnTex(x, bottomTop + botH / 2, blockW, botH, 'ledger-block')
+    top.setData('meta', { ...shared, jawRole: 'top' } satisfies ObstacleMeta)
+    bot.setData('meta', { ...shared, jawRole: 'bot' } satisfies ObstacleMeta)
+    top.setTint(0xf87171)
+    bot.setTint(0xf87171)
+  }
+
+  /** Non-lethal wind column that shoves the falcon up or down. */
+  private spawnWindGust() {
+    const { width, height } = this.scale
+    const x = width + 50
+    const s = this.softH()
+    const w = 70 * s
+    const h = height * Phaser.Math.FloatBetween(0.45, 0.75)
+    const y = Phaser.Math.FloatBetween(h / 2 + 20, height - h / 2 - 20)
+    const force = Math.random() < 0.5 ? 1 : -1
+    const setId = this.nextSetId()
+    const meta: ObstacleMeta = {
+      kind: 'wind',
+      scored: false,
+      noDamage: true,
+      isWind: true,
+      windForce: force,
+      gapCenterY: y,
+      gapHalf: h / 2,
+      setId,
+    }
+    const gust = this.spawnTex(x, y, w, h, 'flight-wind', 0.95, 0.95)
+    gust.setData('meta', meta)
+    gust.setAlpha(0.55)
+    gust.setFlipY(force < 0)
+    this.lastGapCenterY = y
+  }
+
+  /** Gold coins along a safe lane (collect, no damage). */
+  private spawnSafeLaneCoins(laneY: number) {
+    const { width } = this.scale
+    const s = this.softH()
+    const x0 = width + 30
+    const setId = this.nextSetId()
+    const count = 3 + Math.floor(Math.random() * 3)
+    for (let i = 0; i < count; i++) {
+      const coin = this.spawnTex(
+        x0 + i * 36 * s,
+        laneY + Math.sin(i * 1.2) * 10 * s,
+        18 * s,
+        18 * s,
+        'flight-coin',
+        0.7,
+        0.7,
+      )
+      coin.setData('meta', {
+        kind: 'coin',
+        scored: false,
+        noDamage: true,
+        coinValue: 3,
+        gapCenterY: laneY,
+        gapHalf: 20,
+        setId,
+      } satisfies ObstacleMeta)
+      coin.setDepth(6)
+    }
+  }
+
   private spawnScaledBlock(
     x: number,
     y: number,
@@ -1431,24 +1727,218 @@ export class FalconFlightScene extends Phaser.Scene {
     body.updateFromGameObject()
   }
 
+  private shouldProcessObstacle(obs: Phaser.Physics.Arcade.Image): boolean {
+    if (this.teleporting) return false
+    if (this.time.now < this.invulnUntil) return false
+    if (this.state !== 'playing' || this.paused) return false
+    const meta = obs.getData('meta') as ObstacleMeta | undefined
+    if (!meta) return true
+    if (meta.kind === 'laser' && meta.laserActive === false) return false
+    return true
+  }
+
+  private onObstacleOverlap(obs: Phaser.Physics.Arcade.Image) {
+    const meta = obs.getData('meta') as ObstacleMeta | undefined
+    if (!meta) {
+      this.handleCrash()
+      return
+    }
+    if (meta.noDamage) {
+      if (meta.isPortal && !meta.used) {
+        this.triggerPortalTeleport(obs, meta)
+      } else if (meta.kind === 'coin' && !meta.scored) {
+        meta.scored = true
+        this.addScore(meta.coinValue ?? 3)
+        floatScoreText(this, obs.x, obs.y - 12, `+${meta.coinValue ?? 3}`, '#f0c14a')
+        obs.destroy()
+      }
+      // wind applied continuously in updateObstacles
+      return
+    }
+    this.handleCrash()
+  }
+
+  /**
+   * Vanish → clear through the next solid hazard → reappear beyond it.
+   */
+  private triggerPortalTeleport(
+    portal: Phaser.Physics.Arcade.Image,
+    meta: ObstacleMeta,
+  ) {
+    if (this.teleporting || this.state !== 'playing') return
+    meta.used = true
+    meta.scored = true
+
+    // Next damaging obstacle ahead of this portal
+    let nextX: number | null = null
+    let nextSet: number | undefined
+    for (const o of this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      const m = o.getData('meta') as ObstacleMeta | undefined
+      if (!m || m.noDamage) continue
+      if (o.x <= portal.x + 20) continue
+      if (nextX === null || o.x < nextX) {
+        nextX = o.x
+        nextSet = m.setId
+      }
+    }
+
+    // Clear through that set (or a fixed skip if nothing ahead yet)
+    let clearUntil = portal.x + 320
+    if (nextX != null) {
+      clearUntil = nextX + 100
+      if (nextSet != null) {
+        for (const o of this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]) {
+          const m = o.getData('meta') as ObstacleMeta | undefined
+          if (m?.setId === nextSet) {
+            clearUntil = Math.max(clearUntil, o.x + o.displayWidth / 2 + 40)
+          }
+        }
+      }
+    }
+
+    this.teleporting = true
+    this.invulnUntil = this.time.now + 1200
+    stopTrail(this.trail)
+    this.falcon.setVelocity(0, 0)
+    this.falconVisual.setAlpha(0)
+    this.falcon.setAlpha(0)
+    floatScoreText(this, this.falcon.x, this.falcon.y - 36, 'WARP', '#22d3ee', {
+      fontSize: '18px',
+    })
+    this.cameras.main.flash(120, 34, 211, 238, false)
+    this.addScore(Math.round(FALCON_FLIGHT.gapPassBonus * 1.5))
+
+    const destY = meta.gapCenterY ?? this.falcon.y
+    const clearX = clearUntil
+
+    this.time.delayedCall(200, () => {
+      if (this.state !== 'playing') {
+        this.teleporting = false
+        return
+      }
+      // Wipe hazards from ship through the skipped obstacle
+      for (const o of [
+        ...this.obstacles.getChildren(),
+      ] as Phaser.Physics.Arcade.Image[]) {
+        if (o.x < clearX + 10) {
+          const m = o.getData('meta') as ObstacleMeta | undefined
+          if (m && !m.scored && !m.noDamage) m.scored = true
+          o.destroy()
+        }
+      }
+      this.falcon.y = Phaser.Math.Clamp(
+        destY,
+        40,
+        this.scale.height - 40,
+      )
+      this.falconVisual.y = this.falcon.y
+      this.falconVisual.setAlpha(1)
+      this.falcon.setAlpha(1)
+      this.teleporting = false
+      startTrail(this.trail, this.falcon)
+      floatScoreText(
+        this,
+        this.falcon.x + 20,
+        this.falcon.y - 28,
+        'RE-ENTRY',
+        '#d4922a',
+      )
+      nearMissSpark(this, this.sparkEmitter, this.falcon.x, this.falcon.y)
+    })
+  }
+
   private updateObstacles(delta: number) {
     const dx = this.scrollSpeed * (delta / 1000)
     const t = this.time.now / 1000
     const children = this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]
+    const dt = delta / 1000
+
+    // Closing jaws share progress per setId
+    const jawProgress = new Map<number, number>()
 
     for (const obs of children) {
       obs.x -= dx
 
       const meta = obs.getData('meta') as ObstacleMeta | undefined
-      // Vertical bob for diamonds / mobile hazards
-      if (meta?.motion === 'sineY' && meta.baseY != null && meta.amp != null) {
+      if (!meta) continue
+
+      // Vertical bob for diamonds
+      if (meta.motion === 'sineY' && meta.baseY != null && meta.amp != null) {
         const spd = meta.bobSpeed ?? 2.4
         const phase = meta.phase ?? 0
         obs.y = meta.baseY + Math.sin(t * spd + phase) * meta.amp
-        // Slow spin for diamond silhouette
         if (meta.kind === 'diamond') {
-          obs.angle += (delta / 1000) * (40 + this.difficulty * 30)
+          obs.angle += dt * (40 + this.difficulty * 30)
         }
+      }
+
+      // Laser sweep + pulse on/off
+      if (meta.motion === 'laser' && meta.baseY != null && meta.amp != null) {
+        const spd = meta.bobSpeed ?? 2
+        const phase = meta.phase ?? 0
+        obs.y = meta.baseY + Math.sin(t * spd + phase) * meta.amp
+        const wave = Math.sin(t * (2.4 + this.difficulty) + phase)
+        meta.laserActive = wave > -0.15
+        obs.setAlpha(meta.laserActive ? 0.95 : 0.18)
+        obs.setVisible(true)
+      }
+
+      // Closing jaws
+      if (meta.motion === 'jaws' && meta.gapStart != null && meta.gapMin != null) {
+        const id = meta.setId ?? 0
+        if (!jawProgress.has(id)) {
+          const p = Math.min(
+            1,
+            (meta.jawProgress ?? 0) + dt * (meta.closeRate ?? 0.3),
+          )
+          jawProgress.set(id, p)
+        }
+        const p = jawProgress.get(id) ?? 0
+        meta.jawProgress = p
+        const gap = Phaser.Math.Linear(meta.gapStart, meta.gapMin, p)
+        meta.gapHalf = gap / 2
+        const cy = meta.gapCenterY ?? this.scale.height / 2
+        const { height } = this.scale
+        if (meta.jawRole === 'top') {
+          const topH = Math.max(24, cy - gap / 2)
+          obs.setDisplaySize(obs.displayWidth, topH)
+          obs.y = topH / 2
+          this.fitObstacleBody(obs, obs.displayWidth, topH, 0.88, 0.94)
+        } else if (meta.jawRole === 'bot') {
+          const botTop = cy + gap / 2
+          const botH = Math.max(24, height - botTop)
+          obs.setDisplaySize(obs.displayWidth, botH)
+          obs.y = botTop + botH / 2
+          this.fitObstacleBody(obs, obs.displayWidth, botH, 0.88, 0.94)
+        }
+      }
+
+      // Wind shove while overlapping
+      if (
+        meta.isWind &&
+        meta.windForce &&
+        this.state === 'playing' &&
+        !this.teleporting &&
+        this.time.now >= this.invulnUntil
+      ) {
+        const halfW = obs.displayWidth / 2
+        const halfH = obs.displayHeight / 2
+        if (
+          Math.abs(this.falcon.x - obs.x) < halfW + 12 &&
+          Math.abs(this.falcon.y - obs.y) < halfH + 12
+        ) {
+          this.falcon.y += meta.windForce * 220 * dt
+          this.falcon.y = Phaser.Math.Clamp(
+            this.falcon.y,
+            28,
+            this.scale.height - 28,
+          )
+        }
+      }
+
+      // Coins spin
+      if (meta.kind === 'coin') {
+        obs.angle += dt * 90
       }
 
       const body = obs.body as Phaser.Physics.Arcade.Body | null
@@ -1457,14 +1947,13 @@ export class FalconFlightScene extends Phaser.Scene {
         body.y = obs.y - body.halfHeight
       }
 
-      if (!meta || meta.scored) continue
+      if (meta.scored || meta.noDamage) continue
 
       if (obs.x + obs.displayWidth / 2 < this.falcon.x - 8) {
         meta.scored = true
         const bonus = FALCON_FLIGHT.gapPassBonus
         this.addScore(bonus)
 
-        // Near-miss if falcon is close to gap edge
         const gapCenter = meta.gapCenterY ?? this.falcon.y
         const gapHalf = meta.gapHalf ?? 80
         const edgeDist = Math.abs(this.falcon.y - gapCenter)
