@@ -516,20 +516,68 @@ export class LedgerRunnerScene extends Phaser.Scene {
       g.destroy()
     }
 
-    // Pit void strip (dark hole in the floor)
-    if (!this.textures.exists('pit-void')) {
+    // Pit void — high-contrast so it doesn’t blend into the ground strip
+    for (const key of ['pit-void', 'pit-rim', 'pit-warn']) {
+      if (this.textures.exists(key)) this.textures.remove(key)
+    }
+    {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 64
-      const h = 80
-      g.fillStyle(0x020617, 1)
+      const h = 88
+      // Deep black hole
+      g.fillStyle(0x000000, 1)
       g.fillRect(0, 0, w, h)
-      g.fillStyle(0x0a1224, 1)
-      g.fillRect(0, 0, w, 10)
-      g.lineStyle(2, RUNNER_COLORS.danger, 0.55)
-      g.lineBetween(0, 1, w, 1)
-      g.lineStyle(1, RUNNER_COLORS.quantumDim, 0.35)
-      for (let y = 16; y < h; y += 12) g.lineBetween(4, y, w - 4, y)
+      // Red danger wash
+      g.fillStyle(RUNNER_COLORS.danger, 0.22)
+      g.fillRect(0, 0, w, h)
+      // Hot lip at the rim (reads as broken floor edge)
+      g.fillStyle(RUNNER_COLORS.danger, 0.95)
+      g.fillRect(0, 0, w, 5)
+      g.fillStyle(0xfef2f2, 0.9)
+      g.fillRect(0, 0, w, 2)
+      g.fillStyle(RUNNER_COLORS.bronzeBright, 0.75)
+      g.fillRect(0, 5, w, 3)
+      // Depth lines
+      g.lineStyle(1, RUNNER_COLORS.danger, 0.45)
+      for (let y = 16; y < h; y += 10) g.lineBetween(2, y, w - 2, y)
+      // Hazard chevrons
+      g.fillStyle(RUNNER_COLORS.bronzeBright, 0.85)
+      for (let x = 8; x < w - 4; x += 14) {
+        g.fillTriangle(x, 14, x + 5, 22, x - 5, 22)
+      }
       g.generateTexture('pit-void', w, h)
+      g.destroy()
+    }
+    // Vertical rim posts at pit edges
+    {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 14
+      const h = 40
+      g.fillStyle(RUNNER_COLORS.danger, 1)
+      g.fillRoundedRect(0, 0, w, h, 2)
+      g.lineStyle(2, 0xfef2f2, 0.95)
+      g.strokeRoundedRect(1, 1, w - 2, h - 2, 2)
+      g.fillStyle(RUNNER_COLORS.bronzeBright, 1)
+      g.fillRect(3, 4, w - 6, 4)
+      g.fillRect(3, h - 10, w - 6, 4)
+      g.generateTexture('pit-rim', w, h)
+      g.destroy()
+    }
+    // Floating WARN diamond ahead of pit
+    {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const s = 28
+      const c = s / 2
+      g.fillStyle(RUNNER_COLORS.danger, 0.95)
+      g.fillTriangle(c, 2, s - 2, c, c, s - 2)
+      g.fillTriangle(c, 2, 2, c, c, s - 2)
+      g.lineStyle(2, 0xfef2f2, 1)
+      g.strokeTriangle(c, 2, s - 2, c, 2, c)
+      g.strokeTriangle(c, s - 2, s - 2, c, 2, c)
+      g.fillStyle(0xfef2f2, 1)
+      g.fillRect(c - 1.5, 8, 3, 9)
+      g.fillCircle(c, s - 8, 2)
+      g.generateTexture('pit-warn', s, s)
       g.destroy()
     }
   }
@@ -1838,7 +1886,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   /**
    * Hole in the floor with spike teeth. Small = single jump; wide = double-jump.
-   * Player falls through if they don’t clear the gap.
+   * High-contrast rims + warn diamond so it doesn’t blend into the ground.
    */
   private spawnFloorPit(needsDouble: boolean) {
     const s = this.softH()
@@ -1849,47 +1897,104 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const startX = this.scale.width + 60
     const left = startX
     const right = startX + widthPx
-    const pitH = Math.max(48, this.scale.height - this.groundY + 8)
-    const voidY = this.groundY + pitH / 2 - 4
+    const midX = (left + right) / 2
+    const pitH = Math.max(56, this.scale.height - this.groundY + 12)
+    const voidY = this.groundY + pitH / 2 - 2
 
-    // Dark void under the ground line
-    const voidTile = this.hazards.create(
-      (left + right) / 2,
-      voidY,
-      'pit-void',
-    ) as Phaser.Physics.Arcade.Image
-    voidTile.setDisplaySize(widthPx, pitH)
-    const vBody = voidTile.body as Phaser.Physics.Arcade.Body
-    vBody.enable = false
-    voidTile.setDepth(2)
-    voidTile.setData('meta', {
-      kind: 'pit',
+    const pitMetaBase = {
+      kind: 'pit' as const,
       scored: false,
       dangerTop: this.groundY,
       dangerBottom: this.scale.height,
-      lane: 'ground',
+      lane: 'ground' as const,
       noDamage: true,
       isPit: true,
       pitLeft: left,
       pitRight: right,
       needsDoubleJump: needsDouble,
-    } satisfies HazardMeta)
+    }
 
-    // Spike teeth along the pit floor (visual + lethal if you fall in)
-    const spikeH = 28 * s
-    const spikeW = 32
-    const count = Math.max(2, Math.floor(widthPx / (spikeW * 0.95)))
+    // Warning diamond floating just before the lip
+    const warn = this.hazards.create(
+      left - 28 * s,
+      this.groundY - 36 * s,
+      'pit-warn',
+    ) as Phaser.Physics.Arcade.Image
+    warn.setDisplaySize(26 * s, 26 * s)
+    const wBody = warn.body as Phaser.Physics.Arcade.Body
+    wBody.enable = false
+    warn.setDepth(9)
+    warn.setData('meta', { ...pitMetaBase, noDamage: true })
+    warn.setData('floatPhase', 0)
+    warn.setData('floatBase', this.groundY - 36 * s)
+    warn.setData('floatAmp', 5 * s)
+    this.tweens.add({
+      targets: warn,
+      alpha: { from: 0.55, to: 1 },
+      scale: { from: 0.9, to: 1.08 },
+      duration: 420,
+      yoyo: true,
+      repeat: -1,
+    })
+
+    // High-contrast void under the ground line
+    const voidTile = this.hazards.create(midX, voidY, 'pit-void') as Phaser.Physics.Arcade.Image
+    voidTile.setDisplaySize(widthPx + 8, pitH)
+    const vBody = voidTile.body as Phaser.Physics.Arcade.Body
+    vBody.enable = false
+    voidTile.setDepth(2)
+    voidTile.setData('meta', { ...pitMetaBase })
+
+    // Bright rim beam on the ground line (broken floor edge)
+    const rimBar = this.hazards.create(
+      midX,
+      this.groundY + 3,
+      'pit-void',
+    ) as Phaser.Physics.Arcade.Image
+    rimBar.setDisplaySize(widthPx + 16, 10 * s)
+    rimBar.setTint(0xf87171)
+    const rBody = rimBar.body as Phaser.Physics.Arcade.Body
+    rBody.enable = false
+    rimBar.setDepth(7)
+    rimBar.setData('meta', { ...pitMetaBase })
+    this.tweens.add({
+      targets: rimBar,
+      alpha: { from: 0.7, to: 1 },
+      duration: 280,
+      yoyo: true,
+      repeat: -1,
+    })
+
+    // Left / right danger posts
+    for (const edgeX of [left - 4, right + 4]) {
+      const post = this.hazards.create(
+        edgeX,
+        this.groundY - 14 * s,
+        'pit-rim',
+      ) as Phaser.Physics.Arcade.Image
+      post.setDisplaySize(12 * s, 36 * s)
+      const pBody = post.body as Phaser.Physics.Arcade.Body
+      pBody.enable = false
+      post.setDepth(8)
+      post.setData('meta', { ...pitMetaBase })
+    }
+
+    // Spike teeth — taller, stick above the lip so they read as a hazard mouth
+    const spikeH = 36 * s
+    const spikeW = 34
+    const count = Math.max(3, Math.floor(widthPx / (spikeW * 0.85)))
     for (let i = 0; i < count; i++) {
-      const sx = left + spikeW * 0.5 + i * (widthPx / count)
+      const sx = left + spikeW * 0.45 + i * (widthPx / count)
+      // Tips poke up through the rim
       const spike = this.hazards.create(
         sx,
-        this.groundY + spikeH * 0.35,
+        this.groundY + spikeH * 0.15,
         'spike',
       ) as Phaser.Physics.Arcade.Image
-      this.fitHazardBody(spike, spikeW, spikeH, 0.7, 0.85)
+      this.fitHazardBody(spike, spikeW, spikeH, 0.72, 0.88)
       spike.setImmovable(true)
-      spike.setDepth(4)
-      spike.setTint(0xf87171)
+      spike.setDepth(5)
+      spike.setTint(0xfca5a5)
       spike.setData('meta', {
         kind: 'spike',
         scored: false,
@@ -1897,32 +2002,17 @@ export class LedgerRunnerScene extends Phaser.Scene {
         dangerBottom: this.groundY + spikeH,
         lane: 'ground',
       } satisfies HazardMeta)
+      attachQuantumPulse(this, spike)
     }
 
     // Scorer marker so clearing the pit awards combo
-    const marker = this.hazards.create(
-      (left + right) / 2,
-      this.groundY - 8,
-      'pit-void',
-    ) as Phaser.Physics.Arcade.Image
+    const marker = this.hazards.create(midX, this.groundY - 8, 'pit-void') as Phaser.Physics.Arcade.Image
     marker.setDisplaySize(widthPx, 12)
     marker.setAlpha(0.01)
     const mBody = marker.body as Phaser.Physics.Arcade.Body
     mBody.enable = false
     marker.setDepth(1)
-    marker.setData('meta', {
-      kind: 'pit',
-      scored: false,
-      dangerTop: this.groundY - 20,
-      dangerBottom: this.groundY + 20,
-      lane: 'ground',
-      noDamage: true,
-      isPit: true,
-      pitLeft: left,
-      pitRight: right,
-      needsDoubleJump: needsDouble,
-    } satisfies HazardMeta)
-    // Tag for clear scoring once fully past
+    marker.setData('meta', { ...pitMetaBase })
     marker.setData('pitClear', true)
   }
 
