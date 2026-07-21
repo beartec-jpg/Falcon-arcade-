@@ -112,6 +112,14 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private gameOverTimer?: Phaser.Time.TimerEvent
   /** Brief spawn protection after launch / restart. */
   private invulnUntil = 0
+  /**
+   * Jump press buffer (ms window). JustDown is only true for one frame —
+   * without buffering, presses near landing or on hitchy frames are lost.
+   */
+  private jumpBufferUntil = 0
+  /** Coyote time: still allow a ground jump shortly after leaving the floor. */
+  private coyoteUntil = 0
+  private wasOnGround = true
 
   constructor() {
     super('LedgerRunnerScene')
@@ -172,9 +180,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
     )
 
     this.touchUi = createTouchAffordances(this, 'vertical')
-    // Bottom zone is slide, top is jump — relabel
-    this.touchUi.labelA.setText('↑  JUMP')
-    this.touchUi.labelB.setText('↓  SLIDE')
+    // Air (above ground) = jump · floor band = slide
+    this.touchUi.labelA.setText('AIR JUMP')
+    this.touchUi.labelB.setText('FLOOR SLIDE')
 
     this.setupInput()
     this.createHud(width, height)
@@ -189,8 +197,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
         'Ledger Runner',
         [
           'You run automatically.',
-          'Tap / Space to jump (double-jump in air).',
-          'Tap bottom / ↓ to slide under bad ledgers.',
+          'Tap in the air (above the ground) to jump — double-jump in air.',
+          'Tap the floor band / ↓ to slide under bad ledgers.',
           `Chain cleans for combos. Claim at ${LEDGER_RUNNER_REWARD_THRESHOLD}.`,
         ],
         () => {
@@ -277,9 +285,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
     )
 
     this.handleSlideInput()
+    // Queue any jump edge this frame, then try (also drains the buffer)
     if (this.consumeJumpPress()) {
-      this.tryJump()
+      this.queueJump()
     }
+    this.tryConsumeJumpBuffer()
 
     if (this.isSliding && this.time.now >= this.slideUntil) {
       this.endSlide()
@@ -416,6 +426,14 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.keySpace = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
       this.keyZ = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z)
       this.keyP = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.P)
+      // Keep Space / arrows from scrolling the host page and losing focus
+      this.input.keyboard.addCapture([
+        Phaser.Input.Keyboard.KeyCodes.SPACE,
+        Phaser.Input.Keyboard.KeyCodes.UP,
+        Phaser.Input.Keyboard.KeyCodes.DOWN,
+        Phaser.Input.Keyboard.KeyCodes.W,
+        Phaser.Input.Keyboard.KeyCodes.S,
+      ])
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -435,15 +453,26 @@ export class LedgerRunnerScene extends Phaser.Scene {
         this.time.delayedCall(1400, () => this.touchUi.setActive(false))
       }
 
-      // Top 70% = jump, bottom 30% = slide
-      if (pointer.y > this.scale.height * 0.72) {
+      // Touch air (above ground line) = jump · touch floor band = slide
+      if (this.isFloorTouch(pointer.y)) {
         this.touchUi.pulse('b')
         this.startSlide()
       } else {
         this.touchUi.pulse('a')
-        this.tryJump()
+        this.queueJump()
+        this.tryConsumeJumpBuffer()
       }
     })
+  }
+
+  /**
+   * Floor band = near/below the ground line (where the runner’s feet are).
+   * Everything above that is “air” → jump.
+   */
+  private isFloorTouch(pointerY: number): boolean {
+    // Generous band so thumbs can hit the ground strip on phones
+    const floorTop = this.groundY - 36 * this.hScale()
+    return pointerY >= floorTop
   }
 
   private createHud(width: number, height: number) {
@@ -485,7 +514,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 24,
-        'SPACE jump  ·  ↓ slide  ·  P pause  ·  double-jump',
+        'SPACE jump  ·  ↓ / floor tap slide  ·  air tap jump  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -630,7 +659,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.overlay.setActive(true)
     this.hudHint.setText(
       mode === 'ready'
-        ? 'SPACE / TAP jump  ·  ↓ / bottom tap slide  ·  double-jump in air'
+        ? 'SPACE or tap air to jump  ·  ↓ or tap floor to slide'
         : 'SPACE or tap to restart',
     )
   }
@@ -697,6 +726,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.slideUntil = 0
     this.zonesFaded = false
     this.invulnUntil = 0
+    this.jumpBufferUntil = 0
+    this.coyoteUntil = 0
+    this.wasOnGround = true
+    this.onGround = true
     this.touchUi?.setActive(true)
     stopTrail(this.trail)
 
@@ -726,6 +759,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.nextSpawnAt = this.time.now + 900
     this.invulnUntil = this.time.now + 700
     this.jumpsRemaining = 2
+    this.jumpBufferUntil = 0
+    this.coyoteUntil = 0
+    this.wasOnGround = true
+    this.onGround = true
     this.tweens.killTweensOf(this.playerVisual)
     this.playerVisual.setAlpha(1)
     this.playerVisual.setAngle(0)
@@ -789,6 +826,19 @@ export class LedgerRunnerScene extends Phaser.Scene {
     )
   }
 
+  /** Remember a jump request for a short window (buffer). */
+  private queueJump() {
+    this.jumpBufferUntil = this.time.now + 150
+  }
+
+  /** Attempt jump if a buffered press is still live. */
+  private tryConsumeJumpBuffer() {
+    if (this.time.now > this.jumpBufferUntil) return
+    if (this.tryJump()) {
+      this.jumpBufferUntil = 0
+    }
+  }
+
   private handleSlideInput() {
     const downHeld =
       this.cursors?.down.isDown ||
@@ -801,16 +851,25 @@ export class LedgerRunnerScene extends Phaser.Scene {
     }
   }
 
-  private tryJump() {
-    if (this.state !== 'playing') return
+  /**
+   * @returns true if a jump actually fired (so the buffer can clear).
+   */
+  private tryJump(): boolean {
+    if (this.state !== 'playing') return false
 
     if (this.isSliding) {
       this.endSlide()
     }
 
-    if (this.jumpsRemaining <= 0) return
+    const coyote =
+      !this.onGround && this.time.now <= this.coyoteUntil && this.jumpsRemaining >= 2
+    const canGroundJump = this.onGround || coyote
+    const canAirJump = !canGroundJump && this.jumpsRemaining > 0
 
-    const isDouble = this.jumpsRemaining === 1 && !this.onGround
+    if (!canGroundJump && !canAirJump) return false
+    if (this.jumpsRemaining <= 0) return false
+
+    const isDouble = !canGroundJump && this.jumpsRemaining === 1
     // Scale jump with playfield so arcs clear scaled spikes on tall phones
     const s = this.hScale()
     const vy =
@@ -819,10 +878,19 @@ export class LedgerRunnerScene extends Phaser.Scene {
         : LEDGER_RUNNER.jumpVelocity) * s
 
     this.player.setVelocityY(vy)
-    this.jumpsRemaining -= 1
+    if (canGroundJump) {
+      // Ground / coyote jump always leaves one air jump
+      this.jumpsRemaining = 1
+      this.coyoteUntil = 0
+    } else {
+      this.jumpsRemaining -= 1
+    }
     this.onGround = false
+    this.wasOnGround = false
 
     // Small hop juice
+    this.tweens.killTweensOf(this.playerVisual)
+    this.playerVisual.setScale(1, 1)
     this.tweens.add({
       targets: this.playerVisual,
       scaleY: 0.88,
@@ -830,6 +898,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       duration: 70,
       yoyo: true,
     })
+    return true
   }
 
   private startSlide() {
@@ -854,19 +923,28 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const halfH = body.halfHeight
     const feet = this.player.y + halfH
-    const grounded = feet >= this.groundY - 1.5 && body.velocity.y >= 0
+    // Slightly softer floor test so tiny float errors don't deny landing
+    const grounded = feet >= this.groundY - 2.5 && body.velocity.y >= -12
 
     if (grounded) {
       this.player.y = this.groundY - halfH
       body.updateFromGameObject()
       this.player.setVelocityY(0)
       if (!this.onGround) {
-        this.onGround = true
         this.jumpsRemaining = 2
       }
       this.onGround = true
+      this.wasOnGround = true
+      this.coyoteUntil = 0
+      // Landing with a buffered jump still in window → hop immediately
+      this.tryConsumeJumpBuffer()
     } else {
+      if (this.wasOnGround && this.onGround) {
+        // Just left the ground — coyote window for late jump presses
+        this.coyoteUntil = this.time.now + 100
+      }
       this.onGround = false
+      this.wasOnGround = false
     }
 
     // Hard floor clamp
@@ -875,7 +953,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
       body.updateFromGameObject()
       this.player.setVelocityY(0)
       this.onGround = true
+      this.wasOnGround = true
       this.jumpsRemaining = 2
+      this.coyoteUntil = 0
+      this.tryConsumeJumpBuffer()
     }
   }
 
