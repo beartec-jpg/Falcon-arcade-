@@ -41,7 +41,16 @@ import {
   type FalconFlightGameState,
 } from './falconFlightConfig'
 
-type ObstacleKind = 'ledger' | 'quantum' | 'float' | 'weave'
+type ObstacleKind =
+  | 'ledger'
+  | 'quantum'
+  | 'float'
+  | 'weave'
+  | 'spires'
+  | 'diamond'
+  | 'shards'
+  | 'windows'
+  | 'chevrons'
 
 type ObstacleMeta = {
   kind: ObstacleKind
@@ -50,9 +59,24 @@ type ObstacleMeta = {
   gapHalf?: number
   /** Shared id so multi-piece sets only award one clear bonus */
   setId?: number
+  /** Optional vertical bob while scrolling */
+  motion?: 'sineY'
+  baseY?: number
+  amp?: number
+  phase?: number
+  bobSpeed?: number
 }
 
 type GateBias = 'high' | 'mid' | 'low' | 'random'
+
+type ObstacleTex =
+  | 'ledger-block'
+  | 'quantum-bar'
+  | 'flight-spire-up'
+  | 'flight-spire-down'
+  | 'flight-diamond'
+  | 'flight-shard'
+  | 'flight-chevron'
 
 /**
  * Falcon Flight — horizontal auto-scroller with juice pass.
@@ -178,7 +202,7 @@ export class FalconFlightScene extends Phaser.Scene {
         [
           'Fly forward automatically.',
           'Touch above the falcon to climb · below to dive (or ↑↓ / W S).',
-          'Weave through ledger gaps — placement varies every column.',
+          'Thread spires, diamonds, shards, windows & ledger gates.',
           `Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock Claim.`,
         ],
         () => {
@@ -304,6 +328,85 @@ export class FalconFlightScene extends Phaser.Scene {
       g.lineStyle(1, FALCON_COLORS.quantum, 0.5)
       for (let i = -h; i < w + h; i += 8) g.lineBetween(i, 0, i + h, h)
       g.generateTexture('quantum-bar', w, h)
+      g.destroy()
+    }
+
+    // Stalagmite — bronze crystal spike (point up)
+    if (!this.textures.exists('flight-spire-up')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 48
+      const h = 72
+      g.fillStyle(FALCON_COLORS.bronzeDark, 1)
+      g.fillTriangle(w / 2, 2, 4, h - 4, w - 4, h - 4)
+      g.fillStyle(FALCON_COLORS.bronze, 0.95)
+      g.fillTriangle(w / 2, 10, 12, h - 6, w - 12, h - 6)
+      g.lineStyle(2, FALCON_COLORS.bronzeBright, 0.9)
+      g.strokeTriangle(w / 2, 2, 4, h - 4, w - 4, h - 4)
+      g.lineStyle(1.5, FALCON_COLORS.quantum, 0.45)
+      g.lineBetween(w / 2, 12, w / 2, h - 10)
+      g.generateTexture('flight-spire-up', w, h)
+      g.destroy()
+    }
+
+    // Stalactite — hanging spike (point down)
+    if (!this.textures.exists('flight-spire-down')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 48
+      const h = 72
+      g.fillStyle(FALCON_COLORS.bronzeDark, 1)
+      g.fillTriangle(w / 2, h - 2, 4, 4, w - 4, 4)
+      g.fillStyle(FALCON_COLORS.bronze, 0.95)
+      g.fillTriangle(w / 2, h - 10, 12, 6, w - 12, 6)
+      g.lineStyle(2, FALCON_COLORS.bronzeBright, 0.9)
+      g.strokeTriangle(w / 2, h - 2, 4, 4, w - 4, 4)
+      g.generateTexture('flight-spire-down', w, h)
+      g.destroy()
+    }
+
+    // Oscillating diamond / saw node
+    if (!this.textures.exists('flight-diamond')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const s = 56
+      const c = s / 2
+      g.fillStyle(FALCON_COLORS.danger, 0.95)
+      g.fillTriangle(c, 2, s - 4, c, c, s - 2)
+      g.fillTriangle(c, 2, 4, c, c, s - 2)
+      g.fillStyle(FALCON_COLORS.bronzeBright, 0.55)
+      g.fillTriangle(c, 12, s - 14, c, c, s - 12)
+      g.lineStyle(2, FALCON_COLORS.quantumHot, 0.9)
+      g.strokeTriangle(c, 2, s - 4, c, 4, c)
+      g.strokeTriangle(c, s - 2, s - 4, c, 4, c)
+      g.fillStyle(FALCON_COLORS.quantumHot, 0.95)
+      g.fillCircle(c, c, 5)
+      g.generateTexture('flight-diamond', s, s)
+      g.destroy()
+    }
+
+    // Small shard for cluster clouds
+    if (!this.textures.exists('flight-shard')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 28
+      const h = 36
+      g.fillStyle(FALCON_COLORS.quantum, 0.9)
+      g.fillTriangle(w / 2, 2, 2, h - 2, w - 2, h - 2)
+      g.lineStyle(1.5, FALCON_COLORS.quantumHot, 0.95)
+      g.strokeTriangle(w / 2, 2, 2, h - 2, w - 2, h - 2)
+      g.generateTexture('flight-shard', w, h)
+      g.destroy()
+    }
+
+    // Chevron wedge (points right — “ledger arrow”)
+    if (!this.textures.exists('flight-chevron')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 52
+      const h = 48
+      g.fillStyle(FALCON_COLORS.ledgerFace, 1)
+      g.fillTriangle(4, 4, 4, h - 4, w - 2, h / 2)
+      g.lineStyle(2, FALCON_COLORS.bronze, 0.95)
+      g.strokeTriangle(4, 4, 4, h - 4, w - 2, h / 2)
+      g.lineStyle(1.5, FALCON_COLORS.quantum, 0.5)
+      g.lineBetween(10, h / 2, w - 12, h / 2)
+      g.generateTexture('flight-chevron', w, h)
       g.destroy()
     }
   }
@@ -527,7 +630,7 @@ export class FalconFlightScene extends Phaser.Scene {
     if (mode === 'ready') {
       title.setText('Falcon Flight')
       body.setText(
-        'Fly forward automatically. Touch above/below the falcon (or ↑↓) to weave through randomized ledger gaps.',
+        'Fly forward automatically. Touch above/below the falcon (or ↑↓). Expect spires, diamonds, shards, and ledger gates.',
       )
       cta.setText('TAP / SPACE TO LAUNCH')
     } else {
@@ -818,19 +921,38 @@ export class FalconFlightScene extends Phaser.Scene {
       this.difficulty,
     )
 
-    // Weighted variety — more weave/float as difficulty rises
-    const roll = Math.random()
+    /**
+     * Weighted hazard pick — silhouettes differ (spires, diamonds, shards…)
+     * not just recolored boxes. Harder patterns unlock as difficulty rises.
+     */
     const d = this.difficulty
-    if (roll < 0.14 + d * 0.1) {
+    const roll = Math.random()
+    if (roll < 0.1 + d * 0.06) {
       this.spawnQuantumBarrier()
-    } else if (roll < 0.28 + d * 0.12) {
+    } else if (roll < 0.2 + d * 0.05) {
+      this.spawnSpires()
+    } else if (roll < 0.3 + d * 0.06) {
+      this.spawnDiamondSaw()
+    } else if (roll < 0.4 + d * 0.05) {
+      this.spawnShardCloud()
+    } else if (roll < 0.5 + d * 0.04) {
+      this.spawnDoubleWindows()
+    } else if (roll < 0.58 + d * 0.05) {
+      this.spawnChevrons()
+    } else if (roll < 0.68 + d * 0.04) {
       this.spawnFloatingBlock()
-    } else if (roll < 0.42 + d * 0.14) {
+    } else if (roll < 0.78 + d * 0.05) {
       this.spawnWeaveGates()
-    } else if (roll < 0.55) {
-      this.spawnLedgerPair(this.currentGapHeight(true), this.pickBias(['high', 'low']))
+    } else if (roll < 0.88) {
+      this.spawnLedgerPair(
+        this.currentGapHeight(true),
+        this.pickBias(['high', 'low']),
+      )
     } else {
-      this.spawnLedgerPair(this.currentGapHeight(false), this.pickBias(['high', 'mid', 'low', 'random']))
+      this.spawnLedgerPair(
+        this.currentGapHeight(false),
+        this.pickBias(['high', 'mid', 'low', 'random']),
+      )
     }
 
     this.nextSpawnAt =
@@ -1030,17 +1152,236 @@ export class FalconFlightScene extends Phaser.Scene {
       { y: topH / 2, h: topH },
       { y: botY + botH / 2, h: botH },
     ]) {
-      const bar = this.obstacles.create(
-        x,
-        seg.y,
-        'quantum-bar',
-      ) as Phaser.Physics.Arcade.Image
-      // Hitboxes match visuals more closely — less “ghosting” through bars
-      this.fitObstacleBody(bar, barW, seg.h, 0.88, 0.94)
+      const bar = this.spawnTex(x, seg.y, barW, seg.h, 'quantum-bar', 0.88, 0.94)
       bar.setData('meta', meta)
-      bar.setDepth(5)
-      bar.setImmovable(true)
       attachQuantumPulse(this, bar)
+    }
+  }
+
+  /**
+   * Crystal spires: stalactites + stalagmites with a gap to thread.
+   * Reads as spikes, not boxes.
+   */
+  private spawnSpires() {
+    const { width, height } = this.scale
+    const x = width + 48
+    const s = this.softH()
+    const gap = this.currentGapHeight(true)
+    const gapCenter = this.pickGapCenter(gap, this.pickBias(['high', 'low', 'random']))
+    const topTip = gapCenter - gap / 2
+    const botTip = gapCenter + gap / 2
+    const setId = this.nextSetId()
+    const meta: ObstacleMeta = {
+      kind: 'spires',
+      scored: false,
+      gapCenterY: gapCenter,
+      gapHalf: gap / 2,
+      setId,
+    }
+
+    // Hanging spire from ceiling (point down) — height reaches gap top
+    const hangH = Math.max(48 * s, topTip)
+    const hang = this.spawnTex(
+      x,
+      hangH / 2,
+      44 * s,
+      hangH,
+      'flight-spire-down',
+      0.55,
+      0.88,
+    )
+    hang.setData('meta', meta)
+
+    // Rising spire from floor (point up)
+    const riseH = Math.max(48 * s, height - botTip)
+    const rise = this.spawnTex(
+      x + Phaser.Math.Between(-8, 8),
+      height - riseH / 2,
+      44 * s,
+      riseH,
+      'flight-spire-up',
+      0.55,
+      0.88,
+    )
+    rise.setData('meta', meta)
+
+    // Optional second floor spike offset for jagged look
+    if (Math.random() < 0.45 + this.difficulty * 0.2) {
+      const h2 = riseH * Phaser.Math.FloatBetween(0.45, 0.7)
+      const side = this.spawnTex(
+        x + 36 * s,
+        height - h2 / 2,
+        36 * s,
+        h2,
+        'flight-spire-up',
+        0.55,
+        0.88,
+      )
+      side.setData('meta', meta)
+    }
+  }
+
+  /**
+   * Bobbing diamond “saws” — vertical sine motion, fly above or below.
+   */
+  private spawnDiamondSaw() {
+    const { width, height } = this.scale
+    const x = width + 50
+    const s = this.softH()
+    const size = Phaser.Math.Between(Math.round(48 * s), Math.round(72 * s))
+    const margin = 50 * s + size / 2
+    const baseY = Phaser.Math.FloatBetween(margin, height - margin)
+    // Prefer off-center so mid-lane is risky
+    const amp = Phaser.Math.Between(Math.round(40 * s), Math.round(90 * s))
+    const setId = this.nextSetId()
+    const meta: ObstacleMeta = {
+      kind: 'diamond',
+      scored: false,
+      gapCenterY: baseY < height / 2 ? baseY + size : baseY - size,
+      gapHalf: size,
+      setId,
+      motion: 'sineY',
+      baseY,
+      amp,
+      phase: Math.random() * Math.PI * 2,
+      bobSpeed: 2.2 + this.difficulty * 1.4,
+    }
+    const d = this.spawnTex(x, baseY, size, size, 'flight-diamond', 0.7, 0.7)
+    d.setData('meta', meta)
+    attachQuantumPulse(this, d)
+
+    // Sometimes a second diamond offset in X/Y for a pair
+    if (Math.random() < 0.4 + this.difficulty * 0.25) {
+      const baseY2 = Phaser.Math.Clamp(
+        baseY + (Math.random() < 0.5 ? 1 : -1) * (size + 50 * s),
+        margin,
+        height - margin,
+      )
+      const meta2: ObstacleMeta = {
+        ...meta,
+        setId: this.nextSetId(),
+        scored: false,
+        baseY: baseY2,
+        phase: (meta.phase ?? 0) + 1.2,
+        gapCenterY: (baseY + baseY2) / 2,
+      }
+      const d2 = this.spawnTex(
+        x + 70 * s,
+        baseY2,
+        size * 0.85,
+        size * 0.85,
+        'flight-diamond',
+        0.7,
+        0.7,
+      )
+      d2.setData('meta', meta2)
+      attachQuantumPulse(this, d2)
+    }
+  }
+
+  /**
+   * Quantum shard cloud — loose triangle cluster; weave through soft openings.
+   */
+  private spawnShardCloud() {
+    const { width, height } = this.scale
+    const x0 = width + 40
+    const s = this.softH()
+    const setId = this.nextSetId()
+    const lane = this.pickGapCenter(height * 0.25, this.pickBias(['high', 'low', 'mid']))
+    const meta: ObstacleMeta = {
+      kind: 'shards',
+      scored: false,
+      gapCenterY: lane,
+      gapHalf: 50 * s,
+      setId,
+    }
+    const count = 4 + Math.floor(this.difficulty * 3)
+    for (let i = 0; i < count; i++) {
+      const sx = x0 + i * 22 * s + Phaser.Math.Between(-6, 10)
+      // Leave a soft corridor around `lane`
+      let sy = Phaser.Math.FloatBetween(40 * s, height - 40 * s)
+      if (Math.abs(sy - lane) < 42 * s) {
+        sy = lane + (sy < lane ? -55 * s : 55 * s)
+      }
+      const sh = Phaser.Math.Between(Math.round(28 * s), Math.round(44 * s))
+      const shard = this.spawnTex(sx, sy, sh * 0.75, sh, 'flight-shard', 0.65, 0.75)
+      shard.setAngle(Phaser.Math.Between(-25, 25))
+      shard.setData('meta', meta)
+      if (Math.random() < 0.5) attachQuantumPulse(this, shard)
+    }
+  }
+
+  /**
+   * Double windows: three slabs = two tunnels (pick high or low path).
+   */
+  private spawnDoubleWindows() {
+    const { width, height } = this.scale
+    const x = width + 50
+    const s = this.softH()
+    const gap = this.currentGapHeight(true) * 0.85
+    // [ceiling slab][gap][middle floating][gap][floor slab]
+    const y1 = Math.max(28, Phaser.Math.FloatBetween(height * 0.08, height * 0.22))
+    const gap1 = Math.max(gap * 0.9, 70 * s)
+    const midTop = y1 + gap1
+    const midH2 = Phaser.Math.Between(Math.round(70 * s), Math.round(120 * s))
+    const midBot = midTop + midH2
+    const gap2 = Math.max(gap * 0.9, 70 * s)
+    const floorTop = Math.min(height - 28, midBot + gap2)
+
+    const setId = this.nextSetId()
+    const preferred =
+      Math.random() < 0.5 ? y1 + gap1 / 2 : midBot + (floorTop - midBot) / 2
+    this.lastGapCenterY = preferred
+    const meta: ObstacleMeta = {
+      kind: 'windows',
+      scored: false,
+      gapCenterY: preferred,
+      gapHalf: Math.min(gap1, gap2) / 2,
+      setId,
+    }
+
+    const w = 50
+    const top = this.spawnTex(x, y1 / 2, w, y1, 'ledger-block')
+    const mid = this.spawnTex(x, (midTop + midBot) / 2, w + 6, midH2, 'quantum-bar')
+    const botH = height - floorTop
+    const bot = this.spawnTex(x, floorTop + botH / 2, w, botH, 'ledger-block')
+    top.setData('meta', meta)
+    mid.setData('meta', meta)
+    bot.setData('meta', meta)
+    attachQuantumPulse(this, mid)
+  }
+
+  /**
+   * Paired chevrons — arrow wedges stacked with a gap (reads as speed gates).
+   */
+  private spawnChevrons() {
+    const { width, height } = this.scale
+    const x = width + 48
+    const s = this.softH()
+    const gap = this.currentGapHeight(false)
+    const gapCenter = this.pickGapCenter(gap, this.pickBias(['high', 'low', 'random']))
+    const setId = this.nextSetId()
+    const meta: ObstacleMeta = {
+      kind: 'chevrons',
+      scored: false,
+      gapCenterY: gapCenter,
+      gapHalf: gap / 2,
+      setId,
+    }
+    const chW = 50 * s
+    const chH = 42 * s
+    // Stack chevrons above and below the gap
+    let y = gapCenter - gap / 2 - chH / 2
+    while (y > chH * 0.4) {
+      const c = this.spawnTex(x, y, chW, chH, 'flight-chevron', 0.8, 0.8)
+      c.setData('meta', meta)
+      y -= chH * 0.85
+    }
+    y = gapCenter + gap / 2 + chH / 2
+    while (y < height - chH * 0.4) {
+      const c = this.spawnTex(x, y, chW, chH, 'flight-chevron', 0.8, 0.8)
+      c.setData('meta', meta)
+      y += chH * 0.85
     }
   }
 
@@ -1051,10 +1392,22 @@ export class FalconFlightScene extends Phaser.Scene {
     h: number,
     kind: ObstacleKind,
   ) {
-    const key =
+    const key: ObstacleTex =
       kind === 'quantum' ? 'quantum-bar' : 'ledger-block'
+    return this.spawnTex(x, y, w, h, key)
+  }
+
+  private spawnTex(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    key: ObstacleTex,
+    hitScaleX = 0.88,
+    hitScaleY = 0.94,
+  ) {
     const block = this.obstacles.create(x, y, key) as Phaser.Physics.Arcade.Image
-    this.fitObstacleBody(block, w, h, 0.88, 0.94)
+    this.fitObstacleBody(block, w, h, hitScaleX, hitScaleY)
     block.setImmovable(true)
     block.setDepth(5)
     return block
@@ -1080,17 +1433,30 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private updateObstacles(delta: number) {
     const dx = this.scrollSpeed * (delta / 1000)
+    const t = this.time.now / 1000
     const children = this.obstacles.getChildren() as Phaser.Physics.Arcade.Image[]
 
     for (const obs of children) {
       obs.x -= dx
+
+      const meta = obs.getData('meta') as ObstacleMeta | undefined
+      // Vertical bob for diamonds / mobile hazards
+      if (meta?.motion === 'sineY' && meta.baseY != null && meta.amp != null) {
+        const spd = meta.bobSpeed ?? 2.4
+        const phase = meta.phase ?? 0
+        obs.y = meta.baseY + Math.sin(t * spd + phase) * meta.amp
+        // Slow spin for diamond silhouette
+        if (meta.kind === 'diamond') {
+          obs.angle += (delta / 1000) * (40 + this.difficulty * 30)
+        }
+      }
+
       const body = obs.body as Phaser.Physics.Arcade.Body | null
       if (body) {
         body.x = obs.x - body.halfWidth
         body.y = obs.y - body.halfHeight
       }
 
-      const meta = obs.getData('meta') as ObstacleMeta | undefined
       if (!meta || meta.scored) continue
 
       if (obs.x + obs.displayWidth / 2 < this.falcon.x - 8) {
