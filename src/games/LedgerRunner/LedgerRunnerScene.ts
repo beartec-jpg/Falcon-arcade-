@@ -176,13 +176,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
     )
   }
 
-  private crouchH() {
-    return (
-      LEDGER_RUNNER.slideH *
-      (this.powered ? LEDGER_RUNNER.powerScale * 0.92 : 1)
-    )
-  }
-
   /** Effective floor under the runner (ground or elevated runway). */
   private floorY() {
     return this.onPlatform ? this.activePlatformTop : this.groundY
