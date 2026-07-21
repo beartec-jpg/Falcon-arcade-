@@ -48,6 +48,7 @@ type HazardKind =
   | 'lowbeam'
   | 'powerup'
   | 'platform'
+  | 'pit'
 
 type HazardMeta = {
   kind: HazardKind
@@ -65,6 +66,12 @@ type HazardMeta = {
   platformTop?: number
   platformLeft?: number
   platformRight?: number
+  /** Floor hole — runner falls if not jumping across */
+  isPit?: boolean
+  pitLeft?: number
+  pitRight?: number
+  /** Wide pits need a double-jump to clear at normal speeds */
+  needsDoubleJump?: boolean
 }
 
 /**
@@ -248,8 +255,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
         'Ledger Runner',
         [
           'You run automatically.',
-          'Jump spikes · slide under LOW beams (standing will hit).',
-          'Grab bronze SUPER for a free hit · double-jump onto high runways.',
+          'Jump spikes & floor pits · slide under LOW beams.',
+          'Wide pits need double-jump · SUPER = free hit · runways skip ground hazards.',
           `Chain cleans for combos. Claim at ${LEDGER_RUNNER_REWARD_THRESHOLD}.`,
         ],
         () => {
@@ -483,6 +490,23 @@ export class LedgerRunnerScene extends Phaser.Scene {
       g.lineStyle(1, RUNNER_COLORS.quantum, 0.45)
       for (let x = 8; x < w; x += 12) g.lineBetween(x, 2, x, 6)
       g.generateTexture('runway', w, h)
+      g.destroy()
+    }
+
+    // Pit void strip (dark hole in the floor)
+    if (!this.textures.exists('pit-void')) {
+      const g = this.make.graphics({ x: 0, y: 0 })
+      const w = 64
+      const h = 80
+      g.fillStyle(0x020617, 1)
+      g.fillRect(0, 0, w, h)
+      g.fillStyle(0x0a1224, 1)
+      g.fillRect(0, 0, w, 10)
+      g.lineStyle(2, RUNNER_COLORS.danger, 0.55)
+      g.lineBetween(0, 1, w, 1)
+      g.lineStyle(1, RUNNER_COLORS.quantumDim, 0.35)
+      for (let y = 16; y < h; y += 12) g.lineBetween(4, y, w - 4, y)
+      g.generateTexture('pit-void', w, h)
       g.destroy()
     }
   }
@@ -807,7 +831,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (mode === 'ready') {
       title.setText('Ledger Runner')
       body.setText(
-        'Jump spikes · slide under LOW beams · grab SUPER for a free hit · double-jump onto high runways to skip ground hazards.',
+        'Jump spikes & floor pits (wide = double-jump) · slide low beams · SUPER free hit · high runways skip ground hazards.',
       )
       cta.setText('TAP / SPACE TO RUN')
     } else {
@@ -967,7 +991,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.playerVisual.setAlpha(1)
     this.playerVisual.setAngle(0)
     this.hudHint.setText(
-      'Jump · slide low beams · SUPER = 1 hit · double-jump runways',
+      'Jump pits · slide beams · SUPER · double-jump runways/wide pits',
     )
     startTrail(this.trail, this.player)
     this.emitState('playing')
@@ -978,11 +1002,27 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (this.state !== 'playing' || this.paused) return false
     const meta = haz.getData('meta') as HazardMeta | undefined
     if (!meta) return true
+    // Pits / voids handled via fall logic, not body overlap
+    if (meta.isPit) return false
     // Elevated runway: ignore ground-lane hazards
     if (this.onPlatform && meta.lane === 'ground') return false
     // On ground: ignore high-only pieces (none currently)
     if (!this.onPlatform && meta.lane === 'high') return false
     return true
+  }
+
+  /** True if runner X is over a floor hole (and not on elevated runway). */
+  private isOverPit(px: number): { over: boolean; needsDouble: boolean } {
+    for (const haz of this.hazards.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      const meta = haz.getData('meta') as HazardMeta | undefined
+      if (!meta?.isPit) continue
+      const left = meta.pitLeft ?? haz.x - haz.displayWidth / 2
+      const right = meta.pitRight ?? haz.x + haz.displayWidth / 2
+      if (px >= left + 2 && px <= right - 2) {
+        return { over: true, needsDouble: Boolean(meta.needsDoubleJump) }
+      }
+    }
+    return { over: false, needsDouble: false }
   }
 
   private onHazardOverlap(haz: Phaser.Physics.Arcade.Image) {
@@ -1115,7 +1155,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const body = this.player.body as Phaser.Physics.Arcade.Body
     const halfH = body.halfHeight
     const feet = this.player.y + halfH
-    const feetOnFloor = feet >= this.groundY - 4
+    const pit = this.isOverPit(this.player.x)
+    const holeOpen = pit.over && !this.onPlatform
+    const feetOnFloor =
+      !holeOpen && feet >= this.floorY() - 4
     const rising = body.velocity.y < -30
     const groundedNow =
       (this.onGround || feetOnFloor) &&
@@ -1220,7 +1263,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
     let floor = this.groundY
     this.onPlatform = false
     if (platTop != null && vy >= -30 && feet >= platTop - 14 && feet <= platTop + 18) {
-      // Must be above main ground enough to count as runway
       if (platTop < this.groundY - 40) {
         floor = platTop
         this.onPlatform = true
@@ -1228,9 +1270,19 @@ export class LedgerRunnerScene extends Phaser.Scene {
       }
     }
 
+    const pit = this.isOverPit(this.player.x)
+    // Over a floor hole (and not on a high runway): no ground support
+    const holeOpen = pit.over && !this.onPlatform
+
+    // Fell into the pit (past the spike tips)
+    if (holeOpen && feet > this.groundY + 28) {
+      this.handleCrash()
+      return
+    }
+
     // During jump boost: never zero upward velocity (this was eating hops)
     if (boosting) {
-      if (feet > floor + 6) {
+      if (!holeOpen && feet > floor + 6) {
         this.player.y = floor - halfH - 1
         body.updateFromGameObject()
       }
@@ -1238,8 +1290,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
       return
     }
 
-    // Only land when falling or resting — never while rising
-    const grounded = feet >= floor - 3.5 && vy >= -20
+    // Only land when falling or resting — never while rising, never into a pit
+    const grounded = !holeOpen && feet >= floor - 3.5 && vy >= -20
 
     if (grounded) {
       this.player.y = floor - halfH
@@ -1258,12 +1310,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
       }
       this.onGround = false
       this.wasOnGround = false
-      this.onPlatform = false
+      if (holeOpen) this.onPlatform = false
     }
 
-    // Hard floor clamp to main ground — only when not on platform / not rising
+    // Hard floor clamp to main ground — never while over a pit
     if (
       !this.onPlatform &&
+      !holeOpen &&
       this.player.y + halfH > this.groundY &&
       body.velocity.y >= 0
     ) {
@@ -1455,19 +1508,21 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const d = this.difficulty
     const roll = Math.random()
 
-    // Structured-ish mix: plenty of slide-required beams + occasional runway/power
-    if (roll < 0.08 + d * 0.04) {
+    // Structured-ish mix: slides, pits, runways, power
+    if (roll < 0.1 + d * 0.04) {
+      this.spawnFloorPit(Math.random() < 0.45 + d * 0.25)
+    } else if (roll < 0.18 + d * 0.03) {
       this.spawnHighRunway()
-    } else if (roll < 0.16 + d * 0.03) {
+    } else if (roll < 0.25 + d * 0.03) {
       this.spawnPowerup()
-    } else if (roll < 0.38 + d * 0.05) {
-      // Must-slide low beam (main fix — standing no longer fits)
+    } else if (roll < 0.45 + d * 0.05) {
+      // Must-slide low beam (standing no longer fits)
       this.spawnLowBeam()
-    } else if (roll < 0.55) {
+    } else if (roll < 0.6) {
       this.spawnSpike()
-    } else if (roll < 0.72) {
+    } else if (roll < 0.74) {
       this.spawnBarrier()
-    } else if (roll < 0.86) {
+    } else if (roll < 0.88) {
       this.spawnFloater()
     } else {
       this.spawnSpike()
@@ -1611,6 +1666,96 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   /**
+   * Hole in the floor with spike teeth. Small = single jump; wide = double-jump.
+   * Player falls through if they don’t clear the gap.
+   */
+  private spawnFloorPit(needsDouble: boolean) {
+    const s = this.softH()
+    // Width tuned to scroll speed: small ~one hop, wide needs second jump
+    const widthPx = needsDouble
+      ? Phaser.Math.Between(Math.round(200 * s), Math.round(280 * s))
+      : Phaser.Math.Between(Math.round(110 * s), Math.round(155 * s))
+    const startX = this.scale.width + 60
+    const left = startX
+    const right = startX + widthPx
+    const pitH = Math.max(48, this.scale.height - this.groundY + 8)
+    const voidY = this.groundY + pitH / 2 - 4
+
+    // Dark void under the ground line
+    const voidTile = this.hazards.create(
+      (left + right) / 2,
+      voidY,
+      'pit-void',
+    ) as Phaser.Physics.Arcade.Image
+    voidTile.setDisplaySize(widthPx, pitH)
+    const vBody = voidTile.body as Phaser.Physics.Arcade.Body
+    vBody.enable = false
+    voidTile.setDepth(2)
+    voidTile.setData('meta', {
+      kind: 'pit',
+      scored: false,
+      dangerTop: this.groundY,
+      dangerBottom: this.scale.height,
+      lane: 'ground',
+      noDamage: true,
+      isPit: true,
+      pitLeft: left,
+      pitRight: right,
+      needsDoubleJump: needsDouble,
+    } satisfies HazardMeta)
+
+    // Spike teeth along the pit floor (visual + lethal if you fall in)
+    const spikeH = 28 * s
+    const spikeW = 32
+    const count = Math.max(2, Math.floor(widthPx / (spikeW * 0.95)))
+    for (let i = 0; i < count; i++) {
+      const sx = left + spikeW * 0.5 + i * (widthPx / count)
+      const spike = this.hazards.create(
+        sx,
+        this.groundY + spikeH * 0.35,
+        'spike',
+      ) as Phaser.Physics.Arcade.Image
+      this.fitHazardBody(spike, spikeW, spikeH, 0.7, 0.85)
+      spike.setImmovable(true)
+      spike.setDepth(4)
+      spike.setTint(0xf87171)
+      spike.setData('meta', {
+        kind: 'spike',
+        scored: false,
+        dangerTop: this.groundY,
+        dangerBottom: this.groundY + spikeH,
+        lane: 'ground',
+      } satisfies HazardMeta)
+    }
+
+    // Scorer marker so clearing the pit awards combo
+    const marker = this.hazards.create(
+      (left + right) / 2,
+      this.groundY - 8,
+      'pit-void',
+    ) as Phaser.Physics.Arcade.Image
+    marker.setDisplaySize(widthPx, 12)
+    marker.setAlpha(0.01)
+    const mBody = marker.body as Phaser.Physics.Arcade.Body
+    mBody.enable = false
+    marker.setDepth(1)
+    marker.setData('meta', {
+      kind: 'pit',
+      scored: false,
+      dangerTop: this.groundY - 20,
+      dangerBottom: this.groundY + 20,
+      lane: 'ground',
+      noDamage: true,
+      isPit: true,
+      pitLeft: left,
+      pitRight: right,
+      needsDoubleJump: needsDouble,
+    } satisfies HazardMeta)
+    // Tag for clear scoring once fully past
+    marker.setData('pitClear', true)
+  }
+
+  /**
    * Elevated runway — double-jump up, run over ground hazards, drop off the end.
    */
   private spawnHighRunway() {
@@ -1734,11 +1879,15 @@ export class LedgerRunnerScene extends Phaser.Scene {
     for (const haz of children) {
       haz.x -= dx
 
-      // Scroll platform bounds with the tile
+      // Scroll platform / pit bounds with the world
       const metaMove = haz.getData('meta') as HazardMeta | undefined
       if (metaMove?.isPlatform && metaMove.platformLeft != null) {
         metaMove.platformLeft -= dx
         metaMove.platformRight = (metaMove.platformRight ?? 0) - dx
+      }
+      if (metaMove?.isPit && metaMove.pitLeft != null) {
+        metaMove.pitLeft -= dx
+        metaMove.pitRight = (metaMove.pitRight ?? 0) - dx
       }
 
       // Floater / powerup bob
@@ -1757,7 +1906,28 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
       const meta = haz.getData('meta') as HazardMeta | undefined
       if (!meta || meta.scored) continue
-      if (meta.isPlatform || meta.isPowerup || meta.noDamage) continue
+
+      // Pit clear (score once when fully past the hole)
+      if (meta.isPit && haz.getData('pitClear')) {
+        const right = meta.pitRight ?? haz.x + haz.displayWidth / 2
+        if (right < this.player.x - 12) {
+          meta.scored = true
+          const perfect = meta.needsDoubleJump
+            ? true // wide gap that needed two hops
+            : true
+          this.registerClear(perfect)
+          floatScoreText(
+            this,
+            this.player.x + 28,
+            this.player.y - 36,
+            meta.needsDoubleJump ? 'LONG JUMP!' : 'PIT CLEAR',
+            meta.needsDoubleJump ? '#22d3ee' : '#d4922a',
+          )
+        }
+        continue
+      }
+
+      if (meta.isPlatform || meta.isPowerup || meta.noDamage || meta.isPit) continue
 
       // Cleared when fully past the runner
       if (haz.x + haz.displayWidth / 2 < this.player.x - 12) {
@@ -1765,11 +1935,14 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
         const feet =
           this.player.y + (this.player.body as Phaser.Physics.Arcade.Body).halfHeight
-        const head =
-          this.player.y - (this.player.body as Phaser.Physics.Arcade.Body).halfHeight
         let perfect = false
 
         if (meta.kind === 'spike') {
+          // Pit spikes sit below the floor — no jump-clear bonus
+          if (meta.dangerTop >= this.groundY - 2) {
+            meta.scored = true
+            continue
+          }
           perfect = feet < meta.dangerTop - 8 || this.onPlatform
         } else if (meta.kind === 'barrier' || meta.kind === 'lowbeam') {
           perfect = this.isSliding || this.onPlatform
@@ -1778,13 +1951,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
           perfect = Math.abs(this.player.y - mid) > 28
         }
 
-        // Don't score ground clears while flying over on runway
         if (meta.lane === 'ground' && this.onPlatform) {
           this.registerClear(true)
         } else {
           this.registerClear(perfect)
         }
-        void head
       }
     }
   }
