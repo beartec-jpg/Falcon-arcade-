@@ -14,6 +14,7 @@ export const FALCON_COLORS = {
   bronzeBright: 0xd4922a,
   bronzeDark: 0xa06030,
   quantum: 0x22d3ee,
+  quantumHot: 0x67e8f9,
   quantumDim: 0x0e7490,
   ledger: 0x1e293b,
   ledgerFace: 0x334155,
