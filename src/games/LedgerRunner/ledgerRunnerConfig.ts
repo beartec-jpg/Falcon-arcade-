@@ -44,17 +44,18 @@ export const LEDGER_RUNNER = {
   jumpVelocity: -520,
   doubleJumpVelocity: -460,
   slideDurationMs: 480,
-  /** Base world scroll speed (px/s). */
-  baseScrollSpeed: 240,
-  maxScrollSpeed: 420,
-  spawnMaxMs: 1950,
-  spawnMinMs: 1050,
+  /** Base world scroll speed (px/s) — gentle start, ramps later. */
+  baseScrollSpeed: 210,
+  maxScrollSpeed: 400,
+  spawnMaxMs: 2200,
+  spawnMinMs: 1150,
   distancePointsPerSecond: 6,
   clearBonus: 10,
   perfectBonus: 6,
   comboStepBonus: 3,
   maxCombo: 12,
-  difficultyRampSeconds: 75,
+  /** Longer ramp so early run stays readable. */
+  difficultyRampSeconds: 100,
   /** Elevated runway height above ground (design px). */
   platformRise: 92,
   /** How long a runway segment is (design px). */

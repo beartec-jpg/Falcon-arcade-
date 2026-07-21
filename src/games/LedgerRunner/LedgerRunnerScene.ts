@@ -50,6 +50,18 @@ type HazardKind =
   | 'platform'
   | 'pit'
 
+/** One family per wave — unlocks with difficulty (Flight-style). */
+type RunnerWavePattern =
+  | 'spikes'
+  | 'floaters'
+  | 'slide_beams'
+  | 'barriers'
+  | 'pits_small'
+  | 'pits_wide'
+  | 'powerups'
+  | 'runway'
+  | 'spike_beam'
+
 type HazardMeta = {
   kind: HazardKind
   scored: boolean
@@ -155,6 +167,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
   /** Currently standing on elevated runway. */
   private onPlatform = false
   private activePlatformTop = 0
+
+  // ── Wave director (gradual like Flight) ────────────────
+  private waveIndex = 0
+  private waveRemaining = 0
+  private waveStep = 0
+  private wavePattern: RunnerWavePattern = 'spikes'
+  private waveLabelUntil = 0
 
   constructor() {
     super('LedgerRunnerScene')
@@ -364,6 +383,17 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.spawnHazardsIfNeeded()
     this.updateHazards(delta)
     this.cullHazards()
+
+    if (
+      this.waveLabelUntil > 0 &&
+      this.time.now > this.waveLabelUntil &&
+      this.state === 'playing'
+    ) {
+      this.waveLabelUntil = 0
+      this.hudHint.setText(
+        'Jump pits · slide beams · SUPER · double-jump runways/wide pits',
+      )
+    }
   }
 
   // ── setup ──────────────────────────────────────────────
@@ -948,6 +978,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.hazards.clear(true, true)
     this.powered = false
     this.onPlatform = false
+    this.waveIndex = 0
+    this.waveRemaining = 0
+    this.waveStep = 0
+    this.wavePattern = 'spikes'
+    this.waveLabelUntil = 0
     this.endSlide()
     this.applyPowerState(false, false)
     this.player.setPosition(
@@ -983,6 +1018,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.tweens.killTweensOf(this.playerVisual)
     this.playerVisual.setAlpha(1)
     this.playerVisual.setAngle(0)
+    this.waveIndex = 0
+    this.waveRemaining = 0
+    this.waveStep = 0
+    this.wavePattern = 'spikes'
+    this.waveLabelUntil = 0
     this.hudHint.setText(
       'Jump pits · slide beams · SUPER · double-jump runways/wide pits',
     )
@@ -1520,47 +1560,152 @@ export class LedgerRunnerScene extends Phaser.Scene {
     }
   }
 
-  // ── hazards ────────────────────────────────────────────
+  // ── hazards / wave director ────────────────────────────
+
+  private unlockedRunnerWaves(): RunnerWavePattern[] {
+    const d = this.difficulty
+    // Easy intro curriculum
+    const list: RunnerWavePattern[] = ['spikes', 'floaters', 'spikes']
+    if (d >= 0.08) list.push('pits_small')
+    if (d >= 0.16) list.push('slide_beams')
+    if (d >= 0.24) list.push('barriers', 'spike_beam')
+    if (d >= 0.32) list.push('powerups', 'pits_wide')
+    if (d >= 0.42) list.push('runway')
+    // Late game: recycle easier waves so it doesn’t stay pure hard
+    if (d >= 0.55) list.push('spikes', 'slide_beams', 'floaters')
+    return list
+  }
+
+  private waveDisplayName(p: RunnerWavePattern): string {
+    switch (p) {
+      case 'spikes':
+        return 'SPIKES'
+      case 'floaters':
+        return 'FLOATERS'
+      case 'slide_beams':
+        return 'SLIDE BEAMS'
+      case 'barriers':
+        return 'LEDGER GATES'
+      case 'pits_small':
+        return 'FLOOR GAPS'
+      case 'pits_wide':
+        return 'WIDE PITS'
+      case 'powerups':
+        return 'SUPER ORBS'
+      case 'runway':
+        return 'HIGH RUNWAY'
+      case 'spike_beam':
+        return 'SPIKE → SLIDE'
+      default:
+        return 'HAZARDS'
+    }
+  }
+
+  private wavePlan(p: RunnerWavePattern): { count: number; spacing: number } {
+    const d = this.difficulty
+    switch (p) {
+      case 'spikes':
+        return { count: 3 + Math.floor(d * 2), spacing: 1.05 }
+      case 'floaters':
+        return { count: 2 + Math.floor(d * 2), spacing: 1.1 }
+      case 'slide_beams':
+        return { count: 2 + Math.floor(d * 1.5), spacing: 1.2 }
+      case 'barriers':
+        return { count: 2 + Math.floor(d), spacing: 1.15 }
+      case 'pits_small':
+        return { count: 2 + Math.floor(d), spacing: 1.25 }
+      case 'pits_wide':
+        return { count: 1 + Math.floor(d), spacing: 1.4 }
+      case 'powerups':
+        return { count: 1, spacing: 1.1 }
+      case 'runway':
+        return { count: 1, spacing: 1.5 }
+      case 'spike_beam':
+        return { count: 2, spacing: 0.55 }
+      default:
+        return { count: 3, spacing: 1 }
+    }
+  }
+
+  private startNextRunnerWave() {
+    const unlocked = this.unlockedRunnerWaves()
+    this.wavePattern = unlocked[this.waveIndex % unlocked.length]
+    this.waveIndex += 1
+    this.waveStep = 0
+    this.waveRemaining = this.wavePlan(this.wavePattern).count
+    this.waveLabelUntil = this.time.now + 1300
+    if (this.hudHint && this.state === 'playing') {
+      this.hudHint.setText(`WAVE · ${this.waveDisplayName(this.wavePattern)}`)
+    }
+  }
+
+  private spawnWaveHazard(): number {
+    const plan = this.wavePlan(this.wavePattern)
+    const p = this.wavePattern
+    const step = this.waveStep
+
+    switch (p) {
+      case 'spikes':
+        this.spawnSpike()
+        break
+      case 'floaters':
+        this.spawnFloater()
+        break
+      case 'slide_beams':
+        this.spawnLowBeam()
+        break
+      case 'barriers':
+        this.spawnBarrier()
+        break
+      case 'pits_small':
+        this.spawnFloorPit(false)
+        break
+      case 'pits_wide':
+        this.spawnFloorPit(true)
+        break
+      case 'powerups':
+        this.spawnPowerup()
+        // Follow with an easy spike so the orb isn’t lonely
+        this.time.delayedCall(400, () => {
+          if (this.state === 'playing') this.spawnSpike()
+        })
+        break
+      case 'runway':
+        this.spawnHighRunway()
+        break
+      case 'spike_beam':
+        if (step === 0) this.spawnSpike()
+        else this.spawnLowBeam()
+        break
+    }
+
+    this.waveStep += 1
+    this.waveRemaining -= 1
+    return plan.spacing
+  }
 
   private spawnHazardsIfNeeded() {
     if (this.time.now < this.nextSpawnAt) return
 
-    const interval = Phaser.Math.Linear(
+    const baseInterval = Phaser.Math.Linear(
       LEDGER_RUNNER.spawnMaxMs,
       LEDGER_RUNNER.spawnMinMs,
       this.difficulty,
     )
 
-    const d = this.difficulty
-    const roll = Math.random()
-
-    // Structured-ish mix: slides, pits, runways, power
-    if (roll < 0.1 + d * 0.04) {
-      this.spawnFloorPit(Math.random() < 0.45 + d * 0.25)
-    } else if (roll < 0.18 + d * 0.03) {
-      this.spawnHighRunway()
-    } else if (roll < 0.25 + d * 0.03) {
-      this.spawnPowerup()
-    } else if (roll < 0.45 + d * 0.05) {
-      // Must-slide low beam (standing no longer fits)
-      this.spawnLowBeam()
-    } else if (roll < 0.6) {
-      this.spawnSpike()
-    } else if (roll < 0.74) {
-      this.spawnBarrier()
-    } else if (roll < 0.88) {
-      this.spawnFloater()
-    } else {
-      this.spawnSpike()
-      if (this.difficulty > 0.25) {
-        this.time.delayedCall(300, () => {
-          if (this.state === 'playing') this.spawnLowBeam()
-        })
-      }
+    if (this.waveRemaining <= 0) {
+      this.startNextRunnerWave()
     }
 
+    const spacing = this.spawnWaveHazard()
+    const betweenWaves = this.waveRemaining <= 0
+    const gapMul = betweenWaves
+      ? 1.4 + (1 - this.difficulty) * 0.3
+      : spacing
+
     this.nextSpawnAt =
-      this.time.now + interval * Phaser.Math.FloatBetween(0.9, 1.1)
+      this.time.now +
+      baseInterval * gapMul * Phaser.Math.FloatBetween(0.94, 1.06)
   }
 
   /**
@@ -1859,38 +2004,49 @@ export class LedgerRunnerScene extends Phaser.Scene {
         } satisfies HazardMeta)
       }
 
-      // Low beam on the floor
+      // Short crawl blocks that stay *under* the deck (never pierce the platform)
       const gap = 25 * s
-      const bh = 110 * s
       const bottom = this.groundY - gap
-      const beam = this.hazards.create(
-        mid + 30 * s,
-        bottom - bh / 2,
-        'lowbeam',
-      ) as Phaser.Physics.Arcade.Image
-      this.fitHazardBody(beam, 50, bh, 0.9, 0.95)
-      beam.setImmovable(true)
-      beam.setDepth(6)
-      beam.setData('meta', {
-        kind: 'lowbeam',
-        scored: false,
-        dangerTop: bottom - bh,
-        dangerBottom: bottom,
-        lane: 'ground',
-        requiresSlide: true,
-      } satisfies HazardMeta)
+      // Top of hazard must stay below surfaceY with clear air gap
+      const maxTop = surfaceY + 20 * s
+      const maxH = Math.max(36 * s, bottom - maxTop)
+      const bh = Math.min(70 * s, maxH)
+      if (bh > 40 * s) {
+        const beam = this.hazards.create(
+          mid + 20 * s,
+          bottom - bh / 2,
+          'lowbeam',
+        ) as Phaser.Physics.Arcade.Image
+        this.fitHazardBody(beam, 48, bh, 0.9, 0.95)
+        beam.setImmovable(true)
+        beam.setDepth(4) // under runway (depth 8)
+        beam.setData('meta', {
+          kind: 'lowbeam',
+          scored: false,
+          dangerTop: bottom - bh,
+          dangerBottom: bottom,
+          lane: 'ground',
+          requiresSlide: true,
+        } satisfies HazardMeta)
+      }
 
-      // Floating orbs in the air *under* the runway (between ground and deck)
+      // Floating orbs strictly between floor spikes and the deck underside
+      const deckClear = surfaceY + tileH + 12 * s // below platform bottom
       const airCount = 2 + Math.floor(span / (180 * s))
       for (let i = 0; i < airCount; i++) {
         const fx =
           setLeft +
           50 * s +
           (i + 0.5) * ((span - 100 * s) / airCount)
-        const midAir =
-          this.groundY -
-          Phaser.Math.Between(Math.round(45 * s), Math.round(rise - 28 * s))
-        const size = 30 * s
+        const minAir = this.groundY - Math.round(rise - 22 * s)
+        const maxAir = this.groundY - Math.round(48 * s)
+        // Keep floaters under the platform slab
+        const midAir = Phaser.Math.Clamp(
+          Phaser.Math.Between(Math.min(minAir, maxAir), Math.max(minAir, maxAir)),
+          deckClear,
+          this.groundY - 40 * s,
+        )
+        const size = 28 * s
         const floater = this.hazards.create(
           fx,
           midAir,
@@ -1905,16 +2061,15 @@ export class LedgerRunnerScene extends Phaser.Scene {
         fBody.setAllowGravity(false)
         fBody.updateFromGameObject()
         floater.setImmovable(true)
-        floater.setDepth(6)
+        floater.setDepth(4)
         floater.setData('floatPhase', Math.random() * Math.PI * 2)
         floater.setData('floatBase', midAir)
-        floater.setData('floatAmp', Phaser.Math.Between(8, 16) * s)
+        floater.setData('floatAmp', Phaser.Math.Between(6, 12) * s)
         floater.setData('meta', {
           kind: 'floater',
           scored: false,
-          dangerTop: midAir - 20 * s,
-          dangerBottom: midAir + 20 * s,
-          // Ground lane = ignored while on the high runway
+          dangerTop: midAir - 18 * s,
+          dangerBottom: midAir + 18 * s,
           lane: 'ground',
         } satisfies HazardMeta)
         attachQuantumPulse(this, floater)
