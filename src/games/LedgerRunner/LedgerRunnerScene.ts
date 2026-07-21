@@ -481,20 +481,31 @@ export class LedgerRunnerScene extends Phaser.Scene {
       g.destroy()
     }
 
-    // Super power-up (bronze star coin)
-    if (!this.textures.exists('powerup')) {
+    // SUPER power-up — bright gold star orb (force-refresh for newer art)
+    if (this.textures.exists('powerup')) this.textures.remove('powerup')
+    {
       const g = this.make.graphics({ x: 0, y: 0 })
-      const s = 32
+      const s = 40
       const c = s / 2
+      // Soft outer glow
+      g.fillStyle(0xf0c14a, 0.28)
+      g.fillCircle(c, c, 19)
+      // Main coin
       g.fillStyle(RUNNER_COLORS.bronzeBright, 1)
-      g.fillCircle(c, c, 13)
-      g.lineStyle(2, RUNNER_COLORS.bronze, 1)
-      g.strokeCircle(c, c, 13)
-      g.fillStyle(0xf0c14a, 1)
-      g.fillTriangle(c, 6, c - 5, 14, c + 5, 14)
-      g.fillTriangle(c, s - 6, c - 5, s - 14, c + 5, s - 14)
-      g.fillTriangle(6, c, 14, c - 5, 14, c + 5)
-      g.fillTriangle(s - 6, c, s - 14, c - 5, s - 14, c + 5)
+      g.fillCircle(c, c, 14)
+      g.lineStyle(3, 0xfef3c7, 1)
+      g.strokeCircle(c, c, 14)
+      g.lineStyle(2, RUNNER_COLORS.bronze, 0.95)
+      g.strokeCircle(c, c, 11)
+      // 4-point star
+      g.fillStyle(0xfef3c7, 1)
+      g.fillTriangle(c, 6, c - 4, c, c + 4, c)
+      g.fillTriangle(c, s - 6, c - 4, c, c + 4, c)
+      g.fillTriangle(6, c, c, c - 4, c, c + 4)
+      g.fillTriangle(s - 6, c, c, c - 4, c, c + 4)
+      // Core spark
+      g.fillStyle(0xffffff, 0.95)
+      g.fillCircle(c, c, 3.2)
       g.generateTexture('powerup', s, s)
       g.destroy()
     }
@@ -1665,15 +1676,20 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private unlockedRunnerWaves(): RunnerWavePattern[] {
     const d = this.difficulty
-    // Easy intro curriculum
-    const list: RunnerWavePattern[] = ['spikes', 'floaters', 'spikes']
-    if (d >= 0.08) list.push('pits_small')
-    if (d >= 0.16) list.push('slide_beams')
-    if (d >= 0.24) list.push('barriers', 'spike_beam')
-    if (d >= 0.32) list.push('powerups', 'pits_wide')
-    if (d >= 0.42) list.push('runway')
-    // Late game: recycle easier waves so it doesn’t stay pure hard
-    if (d >= 0.55) list.push('spikes', 'slide_beams', 'floaters')
+    // Easy intro — SUPER available early so players learn it before hard waves
+    const list: RunnerWavePattern[] = [
+      'spikes',
+      'floaters',
+      'powerups',
+      'spikes',
+    ]
+    if (d >= 0.06) list.push('pits_small', 'powerups')
+    if (d >= 0.14) list.push('slide_beams')
+    if (d >= 0.22) list.push('barriers', 'spike_beam', 'powerups')
+    if (d >= 0.3) list.push('pits_wide')
+    if (d >= 0.4) list.push('runway')
+    // Late game: recycle easier waves + keep SUPER in rotation
+    if (d >= 0.5) list.push('spikes', 'slide_beams', 'floaters', 'powerups')
     return list
   }
 
@@ -1718,7 +1734,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
       case 'pits_wide':
         return { count: 1 + Math.floor(d), spacing: 1.65 }
       case 'powerups':
-        return { count: 1, spacing: 1.2 }
+        // Often a SUPER orb mid-wave so it’s not rare end-game only
+        return { count: 1, spacing: 1.05 }
       case 'runway':
         return { count: 1, spacing: 1.7 }
       case 'spike_beam':
@@ -1921,29 +1938,39 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private spawnPowerup() {
     const s = this.softH()
     const x = this.nextGroundSpawnX(30)
-    const y = this.groundY - Phaser.Math.Between(Math.round(50 * s), Math.round(90 * s))
+    // Easy grab height — single jump or run-under if low enough
+    const y = this.groundY - Phaser.Math.Between(Math.round(42 * s), Math.round(72 * s))
     const p = this.hazards.create(x, y, 'powerup') as Phaser.Physics.Arcade.Image
-    p.setDisplaySize(28 * s, 28 * s)
+    const size = 36 * s
+    p.setDisplaySize(size, size)
     const body = p.body as Phaser.Physics.Arcade.Body
-    body.setCircle(p.frame.width * 0.4)
-    body.setOffset(p.frame.width * 0.1, p.frame.width * 0.1)
+    body.setCircle(p.frame.width * 0.42)
+    body.setOffset(p.frame.width * 0.08, p.frame.width * 0.08)
     body.setAllowGravity(false)
     body.updateFromGameObject()
     p.setImmovable(true)
-    p.setDepth(7)
+    p.setDepth(9)
     p.setData('meta', {
       kind: 'powerup',
       scored: false,
-      dangerTop: y - 20,
-      dangerBottom: y + 20,
+      dangerTop: y - 24,
+      dangerBottom: y + 24,
       lane: 'any',
       noDamage: true,
       isPowerup: true,
     } satisfies HazardMeta)
     p.setData('floatPhase', Math.random() * Math.PI * 2)
     p.setData('floatBase', y)
-    p.setData('floatAmp', 10 * s)
+    p.setData('floatAmp', 12 * s)
     attachQuantumPulse(this, p)
+    this.tweens.add({
+      targets: p,
+      scale: { from: 0.92, to: 1.12 },
+      duration: 480,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    })
   }
 
   private spawnFloater() {
