@@ -95,8 +95,14 @@ export class EpochRiseScene extends Phaser.Scene {
   private keyS!: Phaser.Input.Keyboard.Key
   private keyP!: Phaser.Input.Keyboard.Key
 
-  /** Pointer drag target (world) while held; null when not steering by touch. */
-  private pointerAim: { x: number; y: number } | null = null
+  /**
+   * Touch destination. Tap sets it and the ship keeps flying there every
+   * frame until it arrives (or a new touch / keyboard). While the finger
+   * is down the target follows the finger (hold-to-steer).
+   */
+  private touchTarget: { x: number; y: number } | null = null
+  private touchHeld = false
+  private static readonly TOUCH_ARRIVE = 18
   private dashDirX = 0
   private dashDirY = 0
 
@@ -164,9 +170,9 @@ export class EpochRiseScene extends Phaser.Scene {
       this,
     )
 
-    // Soft edge hints only — free 2D flight uses drag / WASD
+    // Soft edge hints — free 2D flight via click-to-move / WASD
     this.touchUi = createTouchAffordances(this, 'horizontal')
-    this.touchUi.labelA.setText('DRAG')
+    this.touchUi.labelA.setText('TAP')
     this.touchUi.labelB.setText('TO FLY')
     this.setupInput()
     this.createHud(width, height)
@@ -181,7 +187,7 @@ export class EpochRiseScene extends Phaser.Scene {
         'Epoch Rise',
         [
           'Start at the bottom — the world rises past you.',
-          'Move freely: WASD / arrows, or drag toward orbs.',
+          'Tap where you want to fly (or WASD / arrows).',
           'Go up for faster grabs · drop back for distant orbs.',
           'Dash (Space) bursts in your move direction. Keep energy alive.',
         ],
@@ -443,24 +449,32 @@ export class EpochRiseScene extends Phaser.Scene {
         this.beginRun()
         return
       }
+      if (this.state !== 'playing') return
+      // Ignore pause button corner
+      if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
 
       if (!this.zonesFaded) {
         this.zonesFaded = true
         this.time.delayedCall(1200, () => this.touchUi.setActive(false))
       }
 
-      this.pointerAim = { x: pointer.x, y: pointer.y }
-      // Double-tap top edge = dash in current aim
-      if (pointer.y < this.scale.height * 0.12) {
+      this.touchHeld = true
+      // Set destination — ship keeps auto-driving here after finger lifts
+      this.touchTarget = { x: pointer.worldX, y: pointer.worldY }
+      // Tap near top edge = dash toward current aim
+      if (pointer.worldY < this.scale.height * 0.12) {
         this.tryDash()
       }
     })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown || this.state !== 'playing' || this.paused) return
-      this.pointerAim = { x: pointer.x, y: pointer.y }
+      if (!this.touchHeld || !pointer.isDown) return
+      if (this.state !== 'playing' || this.paused) return
+      // Hold / drag: destination follows finger
+      this.touchTarget = { x: pointer.worldX, y: pointer.worldY }
     })
     this.input.on('pointerup', () => {
-      this.pointerAim = null
+      // Finger up does NOT clear target — keep auto-driving to last point
+      this.touchHeld = false
     })
   }
 
@@ -533,7 +547,7 @@ export class EpochRiseScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 24,
-        'WASD free move  ·  drag to fly  ·  SPACE dash  ·  P pause',
+        'WASD free move  ·  tap to fly  ·  SPACE dash  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -671,7 +685,7 @@ export class EpochRiseScene extends Phaser.Scene {
     this.overlay.setVisible(true)
     this.hudHint.setText(
       mode === 'ready'
-        ? '← → / A D steer  ·  SPACE / SHIFT dash  ·  collect orbs, avoid ledgers'
+        ? 'Tap to fly  ·  WASD  ·  SPACE / SHIFT dash  ·  collect orbs'
         : 'SPACE or tap to restart',
     )
   }
@@ -704,7 +718,8 @@ export class EpochRiseScene extends Phaser.Scene {
     stopTrail(this.trail)
 
     this.entities.clear(true, true)
-    this.pointerAim = null
+    this.touchTarget = null
+    this.touchHeld = false
     this.falcon.setPosition(this.scale.width / 2, this.defaultPlayerY())
     this.falcon.setVelocity(0, 0)
     this.falconVisual.setAlpha(1)
@@ -724,9 +739,10 @@ export class EpochRiseScene extends Phaser.Scene {
     // Lock start to bottom of the playfield so runs always open low
     this.falcon.setPosition(this.scale.width / 2, this.defaultPlayerY())
     this.falcon.setVelocity(0, 0)
-    this.pointerAim = null
+    this.touchTarget = null
+    this.touchHeld = false
     this.nextSpawnAt = this.time.now + 600
-    this.hudHint.setText('Fly free · up for speed grabs · drop back for far orbs')
+    this.hudHint.setText('Tap to fly · up for speed grabs · drop back for far orbs')
     startTrail(this.trail, this.falcon)
     this.emitState('playing')
   }
@@ -763,7 +779,7 @@ export class EpochRiseScene extends Phaser.Scene {
 
   // ── movement ───────────────────────────────────────────
 
-  /** Keyboard + drag intent in unit vector space. */
+  /** Keyboard + touch-to-move intent in unit vector space. */
   private moveIntent(): { x: number; y: number } {
     let x = 0
     let y = 0
@@ -784,12 +800,19 @@ export class EpochRiseScene extends Phaser.Scene {
       y += 1
     }
 
-    // Drag toward pointer for free 2D mobile control
-    if (this.pointerAim && this.state === 'playing') {
-      const dx = this.pointerAim.x - this.falcon.x
-      const dy = this.pointerAim.y - this.falcon.y
+    // Keyboard overrides touch target
+    if (x !== 0 || y !== 0) {
+      this.touchTarget = null
+    }
+
+    // Touch-to-move: keep steering every frame until target is reached
+    if (x === 0 && y === 0 && this.touchTarget && this.state === 'playing') {
+      const dx = this.touchTarget.x - this.falcon.x
+      const dy = this.touchTarget.y - this.falcon.y
       const len = Math.hypot(dx, dy)
-      if (len > 14) {
+      if (len <= EpochRiseScene.TOUCH_ARRIVE) {
+        this.touchTarget = null
+      } else {
         x = dx / len
         y = dy / len
       }

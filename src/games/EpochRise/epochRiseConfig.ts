@@ -41,7 +41,7 @@ export const EPOCH_RISE = {
   playTopRatio: 0.1,
   playBottomRatio: 0.94,
   playerRadius: 16,
-  /** Free 2D move speed (WASD / arrows / drag). */
+  /** Free 2D move speed (WASD / arrows / click-to-move). */
   moveSpeed: 360,
   boostSpeed: 540,
   boostDurationMs: 280,

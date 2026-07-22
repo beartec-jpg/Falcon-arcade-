@@ -32,7 +32,7 @@ export const AA = {
   accel: 420,
   maxSpeed: 280,
   drag: 0.985,
-  /** Touch / pointer steer strength */
+  /** Touch / click-to-move steer strength */
   touchAccel: 520,
   /** Always-firing weapon base */
   baseFireMs: 320,

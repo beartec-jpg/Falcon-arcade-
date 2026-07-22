@@ -59,7 +59,7 @@ export function AmendmentApocalypsePage() {
 
   const statusBody =
     gameState === 'playing'
-      ? 'WASD or drag to fly. Weapons auto-fire. Grab green+ upgrade scrolls. Two hits without an upgrade ends the run.'
+      ? 'Tap a spot to fly there (or WASD). Hold to steer while finger is down. Weapons auto-fire. Grab green+ upgrade scrolls.'
       : gameState === 'gameover'
         ? `Final score ${score}. Reach ${AMENDMENT_REWARD_THRESHOLD} to unlock the Game Faucet claim.`
         : `Shoot mode — free-roam arena, auto-fire, green+ upgrades and Hard Forks. Claim at ${AMENDMENT_REWARD_THRESHOLD}.`

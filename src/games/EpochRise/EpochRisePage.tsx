@@ -64,7 +64,7 @@ export function EpochRisePage() {
 
   const statusBody =
     gameState === 'playing'
-      ? `Energy ${energyPct}%. Fly freely (WASD / drag): climb for faster grabs, drop back for distant orbs. Space dashes in your move direction.`
+      ? `Energy ${energyPct}%. Tap a spot to fly there (or WASD). Hold to steer while finger is down. Space dashes in your move direction.`
       : gameState === 'gameover'
         ? `Final score ${score}. Reach ${EPOCH_RISE_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
         : `Start at the bottom of the rise. Free 2D flight — up/down/left/right — for orbs and hazards. Claim unlocks at ${EPOCH_RISE_REWARD_THRESHOLD} points.`

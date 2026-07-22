@@ -156,9 +156,13 @@ export class FalconFlightScene extends Phaser.Scene {
   private keySpace!: Phaser.Input.Keyboard.Key
   private keyP!: Phaser.Input.Keyboard.Key
 
-  private pointerUpHeld = false
-  private pointerDownHeld = false
-  private touchZone: 'none' | 'up' | 'down' = 'none'
+  /**
+   * Touch destination Y. Tap sets it and the bird keeps flying there
+   * every frame until it arrives (or a new touch / keyboard). While the
+   * finger is down the target follows the finger (hold-to-steer).
+   */
+  private touchTargetY: number | null = null
+  private touchHeld = false
   private touchUi!: TouchZonePair
   private zonesFaded = false
 
@@ -243,8 +247,8 @@ export class FalconFlightScene extends Phaser.Scene {
     )
 
     this.touchUi = createTouchAffordances(this, 'vertical')
-    this.touchUi.labelA.setText('ABOVE')
-    this.touchUi.labelB.setText('BELOW')
+    this.touchUi.labelA.setText('TAP')
+    this.touchUi.labelB.setText('TO FLY')
     this.setupInput()
     this.createHud(width, height)
     this.deathEmitter = createDeathEmitter(this)
@@ -258,7 +262,7 @@ export class FalconFlightScene extends Phaser.Scene {
         'Falcon Flight',
         [
           'Fly forward automatically.',
-          'Touch above the falcon to climb · below to dive (or ↑↓ / W S).',
+          'Tap a height to fly there (or ↑↓ / W S). Hold to steer while finger is down.',
           'Spires, lasers, jaws, wind & portals — fly a gold portal to blink past the next hazard.',
           `Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock Claim.`,
         ],
@@ -356,7 +360,7 @@ export class FalconFlightScene extends Phaser.Scene {
     ) {
       this.waveLabelUntil = 0
       this.hudHint.setText(
-        'Touch above/below bird · weave gaps · claim at 500',
+        'Tap height to fly · weave gaps · claim at 500',
       )
     }
   }
@@ -566,44 +570,26 @@ export class FalconFlightScene extends Phaser.Scene {
         this.beginRun()
         return
       }
+      if (this.state !== 'playing') return
+      // Ignore pause button corner
+      if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
       this.fadeTouchZonesOnce()
-      this.applyPointerSteer(pointer.y)
-      if (this.touchZone === 'up') this.touchUi.pulse('a')
-      else if (this.touchZone === 'down') this.touchUi.pulse('b')
+      this.touchHeld = true
+      // Set destination — bird keeps auto-driving here after finger lifts
+      this.touchTargetY = pointer.worldY
+      if (pointer.worldY < this.falcon.y) this.touchUi.pulse('a')
+      else this.touchUi.pulse('b')
     })
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown || this.paused) return
-      if (this.state !== 'playing') return
-      this.applyPointerSteer(pointer.y)
+      if (!this.touchHeld || !pointer.isDown) return
+      if (this.paused || this.state !== 'playing') return
+      // Hold / drag: destination follows finger
+      this.touchTargetY = pointer.worldY
     })
     this.input.on('pointerup', () => {
-      this.pointerUpHeld = false
-      this.pointerDownHeld = false
-      this.touchZone = 'none'
+      // Finger up does NOT clear target — keep auto-driving to last point
+      this.touchHeld = false
     })
-  }
-
-  /**
-   * Touch relative to the falcon: above bird = climb, below = dive.
-   * Small dead-zone around the bird holds altitude for fine aiming.
-   */
-  private applyPointerSteer(pointerY: number) {
-    const dead = FALCON_FLIGHT.touchDeadZone * Math.min(1.25, this.hScale())
-    const birdY = this.falcon?.y ?? this.scale.height / 2
-    if (pointerY < birdY - dead) {
-      this.touchZone = 'up'
-      this.pointerUpHeld = true
-      this.pointerDownHeld = false
-    } else if (pointerY > birdY + dead) {
-      this.touchZone = 'down'
-      this.pointerUpHeld = false
-      this.pointerDownHeld = true
-    } else {
-      // Hold — don’t fight the player with micro-jitter
-      this.touchZone = 'none'
-      this.pointerUpHeld = false
-      this.pointerDownHeld = false
-    }
   }
 
   private fadeTouchZonesOnce() {
@@ -641,7 +627,7 @@ export class FalconFlightScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 24,
-        '↑↓ / W S  ·  touch above/below bird  ·  P pause  ·  SPACE start',
+        '↑↓ / W S  ·  tap height to fly  ·  P pause  ·  SPACE start',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -763,7 +749,7 @@ export class FalconFlightScene extends Phaser.Scene {
     if (mode === 'ready') {
       title.setText('Falcon Flight')
       body.setText(
-        'Fly forward. Touch above/below the bird. Gold portals warp you past the next hazard — also lasers, jaws, wind & spires.',
+        'Fly forward. Tap a height to fly there. Gold portals warp you past the next hazard — also lasers, jaws, wind & spires.',
       )
       cta.setText('TAP / SPACE TO LAUNCH')
     } else {
@@ -819,9 +805,8 @@ export class FalconFlightScene extends Phaser.Scene {
     this.waveStep = 0
     this.wavePattern = 'ledger'
     this.waveLabelUntil = 0
-    this.pointerUpHeld = false
-    this.pointerDownHeld = false
-    this.touchZone = 'none'
+    this.touchTargetY = null
+    this.touchHeld = false
     this.falcon.setPosition(FALCON_FLIGHT.playerX, this.scale.height / 2)
     this.falcon.setVelocity(0, 0)
     this.falconVisual.setPosition(this.falcon.x, this.falcon.y)
@@ -852,7 +837,7 @@ export class FalconFlightScene extends Phaser.Scene {
     this.falconVisual.setAngle(0)
     this.tweens.killTweensOf(this.falconVisual)
     this.hudHint.setText(
-      'Touch above/below bird · weave gaps · claim at 500',
+      'Tap height to fly · weave gaps · claim at 500',
     )
     startTrail(this.trail, this.falcon)
     this.emitState('playing')
@@ -898,10 +883,25 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private verticalIntent(): number {
     let dir = 0
-    if (this.cursors?.up.isDown || this.keyW?.isDown || this.keyUp?.isDown) dir -= 1
-    if (this.cursors?.down.isDown || this.keyS?.isDown || this.keyDown?.isDown) dir += 1
-    if (this.pointerUpHeld || this.touchZone === 'up') dir -= 1
-    if (this.pointerDownHeld || this.touchZone === 'down') dir += 1
+    if (this.cursors?.up.isDown || this.keyW?.isDown || this.keyUp?.isDown) {
+      dir -= 1
+      this.touchTargetY = null // keyboard overrides touch target
+    }
+    if (this.cursors?.down.isDown || this.keyS?.isDown || this.keyDown?.isDown) {
+      dir += 1
+      this.touchTargetY = null
+    }
+    // Touch-to-height: keep steering every frame until target is reached
+    if (dir === 0 && this.touchTargetY != null && this.state === 'playing') {
+      const dead = FALCON_FLIGHT.touchDeadZone * Math.min(1.25, this.hScale())
+      const dy = this.touchTargetY - this.falcon.y
+      if (Math.abs(dy) <= dead) {
+        this.touchTargetY = null
+        dir = 0
+      } else {
+        dir = dy < 0 ? -1 : 1
+      }
+    }
     return Phaser.Math.Clamp(dir, -1, 1)
   }
 
@@ -918,11 +918,20 @@ export class FalconFlightScene extends Phaser.Scene {
       this.falcon.y = pad
       body.updateFromGameObject()
       this.falcon.setVelocityY(Math.max(0, this.falcon.body?.velocity.y ?? 0))
+      if (this.touchTargetY != null && this.touchTargetY < pad) {
+        this.touchTargetY = null
+      }
     }
     if (this.falcon.y > this.scale.height - pad) {
       this.falcon.y = this.scale.height - pad
       body.updateFromGameObject()
       this.falcon.setVelocityY(Math.min(0, this.falcon.body?.velocity.y ?? 0))
+      if (
+        this.touchTargetY != null &&
+        this.touchTargetY > this.scale.height - pad
+      ) {
+        this.touchTargetY = null
+      }
     }
   }
 

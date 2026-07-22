@@ -35,8 +35,8 @@ export const FALCON_FLIGHT = {
   playerRadius: 11,
   verticalSpeed: 360,
   /**
-   * Touch dead-zone (px) around the falcon: touch above = up, below = down.
-   * Inside this band the bird holds altitude.
+   * Click-to-move dead-zone (px): when within this band of the target Y,
+   * the bird clears the target and holds altitude.
    */
   touchDeadZone: 22,
   /** Base world scroll speed (px/s). */

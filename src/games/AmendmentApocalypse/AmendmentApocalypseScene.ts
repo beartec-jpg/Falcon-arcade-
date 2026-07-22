@@ -122,9 +122,14 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private keyP!: Phaser.Input.Keyboard.Key
   private keySpace!: Phaser.Input.Keyboard.Key
 
-  private pointerDown = false
-  private pointerX = 0
-  private pointerY = 0
+  /**
+   * Touch destination. Tap sets it and the ship keeps flying there every
+   * frame until it arrives (or a new touch / keyboard). While the finger
+   * is down the target follows the finger (hold-to-steer).
+   */
+  private touchTarget: { x: number; y: number } | null = null
+  private touchHeld = false
+  private static readonly TOUCH_ARRIVE = 20
 
   private starLayers: StarLayer[] = []
   private nebula!: NebulaBackdrop
@@ -141,11 +146,6 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private deathEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
   private sparkEmitter!: Phaser.GameObjects.Particles.ParticleEmitter
   private trail!: Phaser.GameObjects.Particles.ParticleEmitter
-
-  private joyBase!: Phaser.GameObjects.Arc
-  private joyKnob!: Phaser.GameObjects.Arc
-  private joyActive = false
-  private joyVec = new Phaser.Math.Vector2(0, 0)
 
   constructor() {
     super('AmendmentApocalypseScene')
@@ -207,7 +207,6 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
 
     this.setupInput()
     this.createHud(width, height)
-    this.createJoystick(width, height)
     this.deathEmitter = createDeathEmitter(this)
     this.sparkEmitter = createSparkEmitter(this)
 
@@ -219,7 +218,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
         this,
         'Amendment Apocalypse',
         [
-          'WASD / drag to fly. Auto-fire weapons.',
+          'Tap where to fly (or WASD). Auto-fire weapons.',
           'ENEMIES: red-marked bugs (drone, missile, spiked ring, ERROR block).',
           'POWERUPS: gold scroll with green + (upgrade) · gold star (Hard Fork).',
           '2 hits without an upgrade → Consensus Broken. Claim at 500.',
@@ -307,7 +306,6 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.cullOffscreen()
     this.tickSurvivalScore(delta)
     this.updateShieldVisual()
-    this.updateJoystickVisual()
   }
 
   // ── textures / ship ────────────────────────────────────
@@ -785,59 +783,24 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
         this.beginRun()
         return
       }
-      this.pointerDown = true
-      this.pointerX = p.x
-      this.pointerY = p.y
-      // Virtual stick if lower-left region
-      if (p.x < this.scale.width * 0.4 && p.y > this.scale.height * 0.45) {
-        this.joyActive = true
-        this.joyBase.setPosition(p.x, p.y).setVisible(true)
-        this.joyKnob.setPosition(p.x, p.y).setVisible(true)
-      }
+      if (this.state !== 'playing') return
+      // Ignore pause button corner
+      if (p.y < 48 && p.x > this.scale.width - 56) return
+
+      this.touchHeld = true
+      // Set destination — ship keeps auto-driving here after finger lifts
+      this.touchTarget = { x: p.worldX, y: p.worldY }
     })
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!p.isDown || this.state !== 'playing' || this.paused) return
-      this.pointerX = p.x
-      this.pointerY = p.y
-      if (this.joyActive) {
-        const dx = p.x - this.joyBase.x
-        const dy = p.y - this.joyBase.y
-        const len = Math.hypot(dx, dy) || 1
-        const max = 48
-        const clamped = Math.min(len, max)
-        this.joyVec.set((dx / len) * (clamped / max), (dy / len) * (clamped / max))
-        this.joyKnob.setPosition(
-          this.joyBase.x + (dx / len) * clamped,
-          this.joyBase.y + (dy / len) * clamped,
-        )
-      }
+      if (!this.touchHeld || !p.isDown) return
+      if (this.state !== 'playing' || this.paused) return
+      // Hold / drag: destination follows finger
+      this.touchTarget = { x: p.worldX, y: p.worldY }
     })
     this.input.on('pointerup', () => {
-      this.pointerDown = false
-      this.joyActive = false
-      this.joyVec.set(0, 0)
-      this.joyBase.setVisible(false)
-      this.joyKnob.setVisible(false)
+      // Finger up does NOT clear target — keep auto-driving to last point
+      this.touchHeld = false
     })
-  }
-
-  private createJoystick(width: number, height: number) {
-    this.joyBase = this.add
-      .circle(80, height - 80, 52, AA_COLORS.panel, 0.35)
-      .setStrokeStyle(2, AA_COLORS.bronze, 0.4)
-      .setDepth(40)
-      .setVisible(false)
-      .setScrollFactor(0)
-    this.joyKnob = this.add
-      .circle(80, height - 80, 22, AA_COLORS.bronze, 0.55)
-      .setDepth(41)
-      .setVisible(false)
-      .setScrollFactor(0)
-    void width
-  }
-
-  private updateJoystickVisual() {
-    // static until active
   }
 
   // ── HUD ────────────────────────────────────────────────
@@ -881,7 +844,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       .text(
         width / 2,
         height - 22,
-        'Shoot red bugs  ·  grab green+ scroll / gold ★  ·  WASD  ·  P pause',
+        'Tap to fly  ·  shoot red bugs  ·  green+ scroll / gold ★  ·  WASD  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: '12px',
@@ -1042,6 +1005,8 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.bugs.clear(true, true)
     this.pickups.clear(true, true)
 
+    this.touchTarget = null
+    this.touchHeld = false
     this.ship.setPosition(this.scale.width / 2, this.scale.height / 2)
     this.ship.setVelocity(0, 0)
     this.shipVisual.setPosition(this.ship.x, this.ship.y)
@@ -1060,8 +1025,10 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     if (this.waitingHowTo) return
     this.state = 'playing'
     this.hideOverlay()
+    this.touchTarget = null
+    this.touchHeld = false
     this.nextSpawnAt = this.time.now + 600
-    this.hudHint.setText('Grab green+ upgrades · dodge bugs · climb tiers')
+    this.hudHint.setText('Tap to fly · grab green+ upgrades · dodge bugs')
     startTrail(this.trail, this.ship)
     this.emitState('playing')
   }
@@ -1098,14 +1065,25 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     if (this.cursors?.up.isDown || this.keyW?.isDown) v.y -= 1
     if (this.cursors?.down.isDown || this.keyS?.isDown) v.y += 1
 
-    if (this.joyActive && this.joyVec.lengthSq() > 0.01) {
-      v.add(this.joyVec)
-    } else if (this.pointerDown && !this.joyActive) {
-      // drag-toward-pointer
-      const dx = this.pointerX - this.ship.x
-      const dy = this.pointerY - this.ship.y
+    // Keyboard overrides touch target
+    if (v.lengthSq() > 0.01) {
+      this.touchTarget = null
+    }
+
+    // Touch-to-move: keep thrusting every frame until target is reached
+    if (
+      v.lengthSq() < 0.01 &&
+      this.touchTarget &&
+      this.state === 'playing'
+    ) {
+      const dx = this.touchTarget.x - this.ship.x
+      const dy = this.touchTarget.y - this.ship.y
       const len = Math.hypot(dx, dy) || 1
-      if (len > 12) v.set(dx / len, dy / len)
+      if (len <= AmendmentApocalypseScene.TOUCH_ARRIVE) {
+        this.touchTarget = null
+      } else {
+        v.set(dx / len, dy / len)
+      }
     }
 
     if (v.lengthSq() > 1) v.normalize()
@@ -1115,6 +1093,14 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private applyThrust(delta: number) {
     const dir = this.thrustVector()
     const body = this.ship.body as Phaser.Physics.Arcade.Body
+    // Touch waypoints use direct velocity so the ship actually drives
+    // all the way to the point (accel-only felt like a short nudge).
+    if (this.touchTarget && dir.lengthSq() > 0.01 && this.state === 'playing') {
+      body.setVelocity(dir.x * AA.maxSpeed, dir.y * AA.maxSpeed)
+      const angle = Phaser.Math.RadToDeg(Math.atan2(dir.y, dir.x))
+      this.shipVisual.setAngle(angle)
+      return
+    }
     if (dir.lengthSq() > 0.01) {
       const ax = dir.x * AA.accel * (delta / 1000)
       const ay = dir.y * AA.accel * (delta / 1000)
