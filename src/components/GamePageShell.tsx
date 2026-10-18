@@ -196,10 +196,8 @@ export function GamePageShell({
                 Expand
               </button>
             )}
-            <div className="play-chrome__score">
-              <span className="game-meta__label">{scoreLabel}</span>
-              <strong className="play-chrome__score-value">{score}</strong>
-            </div>
+            {/* Live score is shown once, in the in-canvas HUD (single score display). */}
+            <div className="play-chrome__spacer" aria-hidden="true" />
             <button
               type="button"
               className={`${claimClass} play-chrome__claim`}
@@ -226,7 +224,7 @@ export function GamePageShell({
 
             <div className="score-display score-display--premium">
               <span className="game-meta__label">{scoreLabel}</span>
-              <strong>{score}</strong>
+              <span className="sr-only">Current score {score}</span>
               {bestScore !== undefined && bestScore > 0 ? (
                 <p className="page-copy score-best">Best this session: {bestScore}</p>
               ) : null}

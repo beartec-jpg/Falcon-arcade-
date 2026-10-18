@@ -1,11 +1,14 @@
 import Phaser from 'phaser'
+import { applyHiDpi, cssFont } from '../../utils/hiDpi'
+import { layoutStatusPanel } from '../../utils/overlayLayout'
+import { ART, warningStripes } from '../../utils/hazardArt'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
-  animateFlightEmblem,
-  createFlightEmblem,
-  type CharacterMood,
-  type FlightEmblem,
-} from '../../utils/emblemCharacters'
+  animateFalconSprite,
+  createFalconSprite,
+  type FalconMood,
+  type FalconSprite,
+} from '../../utils/falconSprite'
 import {
   attachQuantumPulse,
   createDataStream,
@@ -145,7 +148,7 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
-  private flightEmblem!: FlightEmblem
+  private flightEmblem!: FalconSprite
   private obstacles!: Phaser.Physics.Arcade.Group
   private starLayers: StarLayer[] = []
   private nebula!: NebulaBackdrop
@@ -179,7 +182,6 @@ export class FalconFlightScene extends Phaser.Scene {
   private trail!: Phaser.GameObjects.Particles.ParticleEmitter
   private newBestBanner!: Phaser.GameObjects.Text
 
-  private wingFlap = 0
   /** Last gate center Y — used to avoid mid-only corridors. */
   private lastGapCenterY = 0
   private obstacleSetId = 0
@@ -202,6 +204,7 @@ export class FalconFlightScene extends Phaser.Scene {
   }
 
   create() {
+    applyHiDpi(this)
     const { width, height } = this.scale
     this.cameras.main.setBackgroundColor(FALCON_COLORS.bgHex)
     ensureJuiceTextures(this)
@@ -216,8 +219,8 @@ export class FalconFlightScene extends Phaser.Scene {
       immovable: true,
     })
 
-    this.trail = createPlayerTrail(this, 9)
-    this.flightEmblem = createFlightEmblem(
+    this.trail = createPlayerTrail(this, 9, 'subtle')
+    this.flightEmblem = createFalconSprite(
       this,
       FALCON_FLIGHT.playerX,
       height / 2,
@@ -382,29 +385,28 @@ export class FalconFlightScene extends Phaser.Scene {
     }
     if (!this.textures.exists('ledger-block')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // Hazard pillar: dark slate column, warning-striped ends, hard red edge
       const w = 64
-      const h = 64
-      g.fillStyle(FALCON_COLORS.ledgerFace, 1)
-      g.fillRoundedRect(0, 0, w, h, 6)
-      g.lineStyle(2, FALCON_COLORS.bronze, 0.9)
-      g.strokeRoundedRect(1, 1, w - 2, h - 2, 6)
-      g.lineStyle(1, FALCON_COLORS.bronzeDark, 0.55)
-      for (let y = 14; y < h - 8; y += 10) g.lineBetween(10, y, w - 10, y)
-      g.fillStyle(FALCON_COLORS.bronze, 0.15)
-      g.fillRect(8, 8, w - 16, 6)
+      const h = 256
+      g.fillStyle(ART.slate, 1)
+      g.fillRect(0, 0, w, h)
+      g.fillStyle(ART.slateLight, 1)
+      for (let y = 30; y < h - 30; y += 22) g.fillRect(12, y, w - 24, 8)
+      warningStripes(g, 0, 0, w, 18, 8)
+      warningStripes(g, 0, h - 18, w, 18, 8)
+      g.lineStyle(3, ART.danger, 1)
+      g.strokeRect(1.5, 1.5, w - 3, h - 3)
       g.generateTexture('ledger-block', w, h)
       g.destroy()
     }
     if (!this.textures.exists('quantum-bar')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // Energy barrier: red/orange hazard hatching (was cyan)
       const w = 28
-      const h = 64
-      g.fillStyle(FALCON_COLORS.quantumDim, 0.95)
-      g.fillRect(0, 0, w, h)
-      g.lineStyle(2, FALCON_COLORS.quantum, 0.95)
+      const h = 96
+      warningStripes(g, 0, 0, w, h, 6, ART.danger, ART.dangerDeep)
+      g.lineStyle(2, ART.warn, 1)
       g.strokeRect(1, 1, w - 2, h - 2)
-      g.lineStyle(1, FALCON_COLORS.quantum, 0.5)
-      for (let i = -h; i < w + h; i += 8) g.lineBetween(i, 0, i + h, h)
       g.generateTexture('quantum-bar', w, h)
       g.destroy()
     }
@@ -414,14 +416,13 @@ export class FalconFlightScene extends Phaser.Scene {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 48
       const h = 72
-      g.fillStyle(FALCON_COLORS.bronzeDark, 1)
-      g.fillTriangle(w / 2, 2, 4, h - 4, w - 4, h - 4)
-      g.fillStyle(FALCON_COLORS.bronze, 0.95)
-      g.fillTriangle(w / 2, 10, 12, h - 6, w - 12, h - 6)
-      g.lineStyle(2, FALCON_COLORS.bronzeBright, 0.9)
-      g.strokeTriangle(w / 2, 2, 4, h - 4, w - 4, h - 4)
-      g.lineStyle(1.5, FALCON_COLORS.quantum, 0.45)
-      g.lineBetween(w / 2, 12, w / 2, h - 10)
+      g.fillStyle(ART.dangerDeep, 1)
+      g.fillTriangle(w / 2, 2, 3, h - 2, w - 3, h - 2)
+      g.fillStyle(ART.danger, 1)
+      g.fillTriangle(w / 2, 12, 12, h - 10, w - 12, h - 10)
+      warningStripes(g, 3, h - 10, w - 6, 8, 5)
+      g.lineStyle(2, ART.warnBright, 1)
+      g.strokeTriangle(w / 2, 2, 3, h - 2, w - 3, h - 2)
       g.generateTexture('flight-spire-up', w, h)
       g.destroy()
     }
@@ -431,12 +432,13 @@ export class FalconFlightScene extends Phaser.Scene {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 48
       const h = 72
-      g.fillStyle(FALCON_COLORS.bronzeDark, 1)
-      g.fillTriangle(w / 2, h - 2, 4, 4, w - 4, 4)
-      g.fillStyle(FALCON_COLORS.bronze, 0.95)
-      g.fillTriangle(w / 2, h - 10, 12, 6, w - 12, 6)
-      g.lineStyle(2, FALCON_COLORS.bronzeBright, 0.9)
-      g.strokeTriangle(w / 2, h - 2, 4, 4, w - 4, 4)
+      g.fillStyle(ART.dangerDeep, 1)
+      g.fillTriangle(w / 2, h - 2, 3, 2, w - 3, 2)
+      g.fillStyle(ART.danger, 1)
+      g.fillTriangle(w / 2, h - 12, 12, 10, w - 12, 10)
+      warningStripes(g, 3, 2, w - 6, 8, 5)
+      g.lineStyle(2, ART.warnBright, 1)
+      g.strokeTriangle(w / 2, h - 2, 3, 2, w - 3, 2)
       g.generateTexture('flight-spire-down', w, h)
       g.destroy()
     }
@@ -444,17 +446,16 @@ export class FalconFlightScene extends Phaser.Scene {
     // Oscillating diamond / saw node
     if (!this.textures.exists('flight-diamond')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // Saw node: angular red diamond, orange core, hard outline
       const s = 56
       const c = s / 2
-      g.fillStyle(FALCON_COLORS.danger, 0.95)
-      g.fillTriangle(c, 2, s - 4, c, c, s - 2)
-      g.fillTriangle(c, 2, 4, c, c, s - 2)
-      g.fillStyle(FALCON_COLORS.bronzeBright, 0.55)
-      g.fillTriangle(c, 12, s - 14, c, c, s - 12)
-      g.lineStyle(2, FALCON_COLORS.quantumHot, 0.9)
-      g.strokeTriangle(c, 2, s - 4, c, 4, c)
-      g.strokeTriangle(c, s - 2, s - 4, c, 4, c)
-      g.fillStyle(FALCON_COLORS.quantumHot, 0.95)
+      g.fillStyle(ART.danger, 1)
+      g.fillPoints([{ x: c, y: 2 }, { x: s - 2, y: c }, { x: c, y: s - 2 }, { x: 2, y: c }], true)
+      g.fillStyle(ART.warn, 1)
+      g.fillPoints([{ x: c, y: 14 }, { x: s - 14, y: c }, { x: c, y: s - 14 }, { x: 14, y: c }], true)
+      g.lineStyle(2.5, ART.outline, 1)
+      g.strokePoints([{ x: c, y: 2 }, { x: s - 2, y: c }, { x: c, y: s - 2 }, { x: 2, y: c }], true, true)
+      g.fillStyle(ART.stripeDark, 1)
       g.fillCircle(c, c, 5)
       g.generateTexture('flight-diamond', s, s)
       g.destroy()
@@ -465,9 +466,11 @@ export class FalconFlightScene extends Phaser.Scene {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 28
       const h = 36
-      g.fillStyle(FALCON_COLORS.quantum, 0.9)
+      g.fillStyle(ART.danger, 1)
       g.fillTriangle(w / 2, 2, 2, h - 2, w - 2, h - 2)
-      g.lineStyle(1.5, FALCON_COLORS.quantumHot, 0.95)
+      g.fillStyle(ART.warn, 1)
+      g.fillTriangle(w / 2, 12, 8, h - 6, w - 8, h - 6)
+      g.lineStyle(1.5, ART.outline, 1)
       g.strokeTriangle(w / 2, 2, 2, h - 2, w - 2, h - 2)
       g.generateTexture('flight-shard', w, h)
       g.destroy()
@@ -478,12 +481,12 @@ export class FalconFlightScene extends Phaser.Scene {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 52
       const h = 48
-      g.fillStyle(FALCON_COLORS.ledgerFace, 1)
+      g.fillStyle(ART.danger, 1)
       g.fillTriangle(4, 4, 4, h - 4, w - 2, h / 2)
-      g.lineStyle(2, FALCON_COLORS.bronze, 0.95)
+      g.fillStyle(ART.warn, 1)
+      g.fillTriangle(10, 14, 10, h - 14, w - 18, h / 2)
+      g.lineStyle(2, ART.outline, 1)
       g.strokeTriangle(4, 4, 4, h - 4, w - 2, h / 2)
-      g.lineStyle(1.5, FALCON_COLORS.quantum, 0.5)
-      g.lineBetween(10, h / 2, w - 12, h / 2)
       g.generateTexture('flight-chevron', w, h)
       g.destroy()
     }
@@ -491,16 +494,20 @@ export class FalconFlightScene extends Phaser.Scene {
     // Teleport portal ring
     if (!this.textures.exists('flight-portal')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // Friendly warp portal: glowing gold ring, white chevron symbol
       const s = 72
       const c = s / 2
-      g.lineStyle(8, FALCON_COLORS.bronzeBright, 1)
+      g.fillStyle(ART.gold, 0.18)
+      g.fillCircle(c, c, 35)
+      g.lineStyle(8, ART.gold, 1)
       g.strokeCircle(c, c, 28)
-      g.lineStyle(4, FALCON_COLORS.quantum, 0.95)
+      g.lineStyle(3, ART.white, 0.95)
       g.strokeCircle(c, c, 22)
-      g.lineStyle(2, FALCON_COLORS.quantumHot, 0.7)
-      g.strokeCircle(c, c, 14)
-      g.fillStyle(FALCON_COLORS.quantum, 0.2)
-      g.fillCircle(c, c, 12)
+      g.fillStyle(ART.gold, 0.3)
+      g.fillCircle(c, c, 20)
+      g.fillStyle(ART.white, 1)
+      g.fillTriangle(c - 10, c - 10, c + 2, c, c - 10, c + 10)
+      g.fillTriangle(c - 1, c - 10, c + 11, c, c - 1, c + 10)
       g.generateTexture('flight-portal', s, s)
       g.destroy()
     }
@@ -510,12 +517,12 @@ export class FalconFlightScene extends Phaser.Scene {
       const g = this.make.graphics({ x: 0, y: 0 })
       const w = 120
       const h = 14
-      g.fillStyle(FALCON_COLORS.danger, 0.95)
-      g.fillRoundedRect(0, 2, w, h - 4, 4)
-      g.fillStyle(0xffffff, 0.85)
-      g.fillRoundedRect(8, 5, w - 16, 4, 2)
-      g.lineStyle(1.5, FALCON_COLORS.quantumHot, 0.9)
-      g.strokeRoundedRect(0, 2, w, h - 4, 4)
+      g.fillStyle(ART.danger, 1)
+      g.fillRect(0, 2, w, h - 4)
+      g.fillStyle(ART.warnBright, 1)
+      g.fillRect(6, 5, w - 12, 4)
+      g.lineStyle(1.5, ART.outline, 1)
+      g.strokeRect(0, 2, w, h - 4)
       g.generateTexture('flight-laser', w, h)
       g.destroy()
     }
@@ -540,14 +547,17 @@ export class FalconFlightScene extends Phaser.Scene {
     // Safe-lane coin / marker
     if (!this.textures.exists('flight-coin')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      const s = 20
+      // Friendly coin: rounded gold with white glint + symbol
+      const s = 24
       const c = s / 2
-      g.fillStyle(FALCON_COLORS.bronzeBright, 1)
-      g.fillCircle(c, c, 8)
-      g.lineStyle(2, FALCON_COLORS.bronze, 1)
-      g.strokeCircle(c, c, 8)
-      g.fillStyle(0xf0c14a, 0.9)
-      g.fillCircle(c, c, 3.5)
+      g.fillStyle(ART.gold, 0.25)
+      g.fillCircle(c, c, 12)
+      g.fillStyle(ART.gold, 1)
+      g.fillCircle(c, c, 8.5)
+      g.lineStyle(2, ART.white, 0.95)
+      g.strokeCircle(c, c, 8.5)
+      g.fillStyle(ART.white, 1)
+      g.fillPoints([{ x: c, y: c - 4.5 }, { x: c + 3.2, y: c }, { x: c, y: c + 4.5 }, { x: c - 3.2, y: c }], true)
       g.generateTexture('flight-coin', s, s)
       g.destroy()
     }
@@ -572,7 +582,7 @@ export class FalconFlightScene extends Phaser.Scene {
         return
       }
       // Ignore pause button corner
-      if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
+      if (pointer.worldY < 48 && pointer.worldX > this.scale.width - 56) return
       this.fadeTouchZonesOnce()
       this.touchHeld = true
       // Set destination — bird keeps auto-driving here after finger lifts
@@ -600,7 +610,7 @@ export class FalconFlightScene extends Phaser.Scene {
 
   private createHud(width: number, height: number) {
     const panel = this.add
-      .rectangle(12, 12, 168, 58, 0x0f172a, 0.82)
+      .rectangle(12, 12, 168, 40, 0x0f172a, 0.82)
       .setOrigin(0, 0)
       .setStrokeStyle(1, FALCON_COLORS.bronze, 0.35)
       .setDepth(30)
@@ -622,19 +632,23 @@ export class FalconFlightScene extends Phaser.Scene {
         fontStyle: '600',
       })
       .setDepth(31)
+      // Claim threshold lives in the sidebar meter — keep the HUD to one number
+      .setVisible(false)
 
     this.hudHint = this.add
       .text(
         width / 2,
-        height - 24,
+        height - 8,
         '↑↓ / W S  ·  tap height to fly  ·  P pause  ·  SPACE start',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: '12px',
+          fontSize: cssFont(this, 12, 14),
+          align: 'center',
+          wordWrap: { width: width - 40 },
           color: '#94a3b8',
         },
       )
-      .setOrigin(0.5)
+      .setOrigin(0.5, 1)
       .setDepth(30)
 
     createPauseButton(this, () => {
@@ -683,7 +697,7 @@ export class FalconFlightScene extends Phaser.Scene {
       this.physics.pause()
     } else {
       this.physics.resume()
-      startTrail(this.trail, this.falcon)
+      startTrail(this.trail, this.falcon, -22)
     }
   }
 
@@ -750,6 +764,7 @@ export class FalconFlightScene extends Phaser.Scene {
       )
       cta.setText('TAP / SPACE TO RESTART')
     }
+    layoutStatusPanel(this, this.overlay)
     this.overlay.setVisible(true)
     this.overlay.setActive(true)
   }
@@ -830,7 +845,7 @@ export class FalconFlightScene extends Phaser.Scene {
     this.hudHint.setText(
       'Tap height to fly · weave gaps · claim at 500',
     )
-    startTrail(this.trail, this.falcon)
+    startTrail(this.trail, this.falcon, -22)
     this.emitState('playing')
   }
 
@@ -932,7 +947,7 @@ export class FalconFlightScene extends Phaser.Scene {
     this.falcon.y = y
     this.falconVisual.y = y
     this.falconVisual.x = this.falcon.x
-    this.wingFlap += delta
+    void delta
   }
 
   private updateFalconVisual(delta: number) {
@@ -940,26 +955,22 @@ export class FalconFlightScene extends Phaser.Scene {
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
 
-    this.wingFlap += delta * (this.state === 'playing' ? 1.15 + this.difficulty * 0.4 : 0.7)
     const vy = this.falcon.body?.velocity.y ?? 0
-    const pitch =
-      this.state === 'playing' ? Phaser.Math.Clamp(vy / 16, -24, 24) : 0
-    const speedFactor =
-      this.state === 'playing'
-        ? this.scrollSpeed / FALCON_FLIGHT.baseScrollSpeed
-        : 0.85
-
-    let mood: CharacterMood = 'idle'
+    const maxVy = FALCON_FLIGHT.verticalSpeed * this.hScale()
+    let mood: FalconMood = 'idle'
     if (this.state === 'gameover') mood = 'dead'
-    else if (this.state === 'playing') {
-      mood = this.difficulty > 0.55 || speedFactor > 1.35 ? 'boost' : 'play'
-    }
-
-    animateFlightEmblem(this.flightEmblem, delta, this.wingFlap, mood, pitch, {
-      vy,
-      speedFactor,
-    })
+    else if (this.state === 'playing') mood = this.difficulty > 0.55 ? 'boost' : 'play'
+    const flapRate = 1 + this.difficulty * 0.25
+    animateFalconSprite(
+      this.flightEmblem,
+      delta,
+      mood,
+      this.state === 'playing' ? vy : 0,
+      maxVy,
+      flapRate,
+    )
   }
+
 
   private advanceScore(delta: number) {
     const speedFactor = this.scrollSpeed / FALCON_FLIGHT.baseScrollSpeed
@@ -2042,7 +2053,7 @@ export class FalconFlightScene extends Phaser.Scene {
       this.falconVisual.setAlpha(1)
       this.falcon.setAlpha(1)
       this.teleporting = false
-      startTrail(this.trail, this.falcon)
+      startTrail(this.trail, this.falcon, -22)
       floatScoreText(
         this,
         this.falcon.x + 20,

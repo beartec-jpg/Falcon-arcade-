@@ -1,4 +1,6 @@
 import Phaser from 'phaser'
+import { cssFont } from './hiDpi'
+import { belowStartButtonY } from './overlayLayout'
 
 export const JUICE = {
   bronze: 0xc07838,
@@ -38,19 +40,25 @@ export function ensureJuiceTextures(scene: Phaser.Scene) {
 }
 
 /** Soft bronze trail following a target. */
+export type TrailStyle = 'bronze' | 'subtle'
+
 export function createPlayerTrail(
   scene: Phaser.Scene,
   depth = 9,
+  style: TrailStyle = 'bronze',
 ): Phaser.GameObjects.Particles.ParticleEmitter {
   ensureJuiceTextures(scene)
+  const subtle = style === 'subtle'
   const emitter = scene.add.particles(0, 0, 'trail-dot', {
-    lifespan: { min: 280, max: 520 },
-    speed: { min: 4, max: 28 },
-    scale: { start: 0.55, end: 0 },
-    alpha: { start: 0.55, end: 0 },
-    tint: [JUICE.bronzeBright, JUICE.bronze, JUICE.bronzeDark],
-    frequency: 28,
-    blendMode: 'ADD',
+    lifespan: subtle ? { min: 220, max: 360 } : { min: 280, max: 520 },
+    speed: subtle ? { min: 0, max: 6 } : { min: 4, max: 28 },
+    scale: subtle ? { start: 0.42, end: 0.05 } : { start: 0.55, end: 0 },
+    alpha: subtle ? { start: 0.22, end: 0 } : { start: 0.55, end: 0 },
+    tint: subtle
+      ? [0xfef3c7, 0xf5deb3]
+      : [JUICE.bronzeBright, JUICE.bronze, JUICE.bronzeDark],
+    frequency: subtle ? 22 : 28,
+    blendMode: subtle ? 'NORMAL' : 'ADD',
     followOffset: { x: -6, y: 0 },
     emitting: false,
     quantity: 1,
@@ -62,8 +70,9 @@ export function createPlayerTrail(
 export function startTrail(
   emitter: Phaser.GameObjects.Particles.ParticleEmitter,
   target: Phaser.GameObjects.GameObject & { x: number; y: number },
+  offsetX = -8,
 ) {
-  emitter.startFollow(target, -8, 0, false)
+  emitter.startFollow(target, offsetX, 0, false)
   emitter.start()
 }
 
@@ -227,7 +236,8 @@ export function createNebulaBackdrop(
     y: Phaser.Math.Between(0, height),
     r: Phaser.Math.Between(90, 180),
     c: palette[i % palette.length],
-    a: Phaser.Math.FloatBetween(0.06, 0.14),
+    // Calm backdrop: combined blob opacity stays ≤ 8% so gameplay reads first
+    a: Phaser.Math.FloatBetween(0.03, 0.05),
     vx: Phaser.Math.FloatBetween(0.008, 0.02) * (i % 2 === 0 ? 1 : -1),
   }))
   return { graphics, blobs }
@@ -248,7 +258,7 @@ export function updateNebulaBackdrop(
   for (const b of nebula.blobs) {
     nebula.graphics.fillStyle(b.c, b.a)
     nebula.graphics.fillCircle(b.x, b.y, b.r)
-    nebula.graphics.fillStyle(b.c, b.a * 0.45)
+    nebula.graphics.fillStyle(b.c, b.a * 0.5)
     nebula.graphics.fillCircle(b.x + b.r * 0.15, b.y - b.r * 0.1, b.r * 0.55)
   }
 }
@@ -260,7 +270,7 @@ export function createParallaxStarfield(
   layers = [
     { count: 34, speed: 0.18, size: [0.5, 1.2] as [number, number], alpha: [0.25, 0.55] as [number, number] },
     { count: 42, speed: 0.4, size: [0.7, 2.0] as [number, number], alpha: [0.35, 0.8] as [number, number] },
-    { count: 22, speed: 0.75, size: [1.1, 2.6] as [number, number], alpha: [0.5, 0.95] as [number, number] },
+    { count: 22, speed: 0.75, size: [1.1, 2.6] as [number, number], alpha: [0.45, 0.8] as [number, number] },
   ],
 ): StarLayer[] {
   return layers.map((cfg, i) => {
@@ -308,7 +318,7 @@ export function createDataStream(
   scene: Phaser.Scene,
   depth = 2,
 ): Phaser.GameObjects.Graphics {
-  return scene.add.graphics().setDepth(depth).setAlpha(0.28)
+  return scene.add.graphics().setDepth(depth).setAlpha(0.16)
 }
 
 export function drawDataStream(
@@ -394,7 +404,7 @@ export function createTouchAffordances(
     labelA = scene.add
       .text(width / 2, height * 0.14, '↑  UP', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '13px',
+        fontSize: cssFont(scene, 12, 14),
         color: '#d4922a',
         fontStyle: '700',
       })
@@ -404,7 +414,7 @@ export function createTouchAffordances(
     labelB = scene.add
       .text(width / 2, height * 0.86, '↓  DOWN', {
         fontFamily: 'Inter, system-ui, sans-serif',
-        fontSize: '13px',
+        fontSize: cssFont(scene, 12, 14),
         color: '#22d3ee',
         fontStyle: '700',
       })
@@ -499,37 +509,49 @@ export function createHowToOverlay(
   lines: string[],
   onDismiss: () => void,
 ): HowToOverlay {
-  const { width, height } = scene.scale
-  const container = scene.add.container(width / 2, height / 2).setDepth(60)
-  const panel = scene.add
-    .rectangle(0, 0, Math.min(440, width - 40), 260, 0x0f172a, 0.96)
-    .setStrokeStyle(2, JUICE.bronze, 0.85)
+  const { width } = scene.scale
+  const container = scene.add.container(width / 2, 0).setDepth(60)
+  const panelW = Math.min(width - 24, Math.max(440, width * 0.62))
+  const pad = 22
   const heading = scene.add
-    .text(0, -96, title, {
+    .text(0, 0, title, {
       fontFamily: 'Inter, system-ui, sans-serif',
-      fontSize: '24px',
+      fontSize: cssFont(scene, 18, 24),
       color: '#f1f5f9',
       fontStyle: '700',
     })
-    .setOrigin(0.5)
+    .setOrigin(0.5, 0)
   const body = scene.add
-    .text(0, -10, lines.join('\n'), {
+    .text(0, 0, lines.join('\n'), {
       fontFamily: 'Inter, system-ui, sans-serif',
-      fontSize: '14px',
-      color: '#94a3b8',
+      fontSize: cssFont(scene, 13, 15),
+      color: '#cbd5e1',
       align: 'center',
       lineSpacing: 6,
-      wordWrap: { width: Math.min(380, width - 80) },
+      wordWrap: { width: panelW - pad * 2 },
     })
-    .setOrigin(0.5)
+    .setOrigin(0.5, 0)
+  // The DOM "Tap to start" button above is the action; this is a keyboard hint.
   const cta = scene.add
-    .text(0, 96, 'TAP TO START', {
+    .text(0, 0, 'or press SPACE', {
       fontFamily: 'Inter, system-ui, sans-serif',
-      fontSize: '15px',
-      color: '#d4922a',
-      fontStyle: '700',
+      fontSize: cssFont(scene, 12, 14),
+      color: '#94a3b8',
+      fontStyle: '600',
     })
-    .setOrigin(0.5)
+    .setOrigin(0.5, 0)
+  const gap = 12
+  const panelH = pad + heading.height + gap + body.height + gap + cta.height + pad
+  const panel = scene.add
+    .rectangle(0, 0, panelW, panelH, 0x0f172a, 0.96)
+    .setStrokeStyle(2, JUICE.bronze, 0.85)
+  let y = -panelH / 2 + pad
+  heading.setY(y)
+  y += heading.height + gap
+  body.setY(y)
+  y += body.height + gap
+  cta.setY(y)
+  container.setY(belowStartButtonY(scene) + panelH / 2)
 
   container.add([panel, heading, body, cta])
   container.setSize(panel.width, panel.height)

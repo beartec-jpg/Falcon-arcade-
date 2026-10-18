@@ -1,4 +1,13 @@
 import Phaser from 'phaser'
+import { applyHiDpi, cssFont } from '../../utils/hiDpi'
+import { layoutStatusPanel } from '../../utils/overlayLayout'
+import {
+  ART,
+  drawBadge,
+  drawSpikyMine,
+  drawStripedSlab,
+  warningStripes,
+} from '../../utils/hazardArt'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   animateRunnerEmblem,
@@ -111,6 +120,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private playerVisual!: Phaser.GameObjects.Container
   private runnerEmblem!: RunnerEmblem
   private hazards!: Phaser.Physics.Arcade.Group
+  private pickups!: Phaser.Physics.Arcade.Group
   private groundY: number = LEDGER_RUNNER.groundY
 
   private jumpsRemaining = 2
@@ -204,6 +214,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   create() {
+    applyHiDpi(this)
     const { width, height } = this.scale
     // Keep ground near the bottom of whatever aspect we're using
     this.groundY = height * (LEDGER_RUNNER.groundY / LEDGER_RUNNER.designHeight)
@@ -221,6 +232,11 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.createTextures()
 
     this.hazards = this.physics.add.group({
+      allowGravity: false,
+      immovable: true,
+    })
+    // Friendly pickups live in their own group (art + logic can't drift into hazards)
+    this.pickups = this.physics.add.group({
       allowGravity: false,
       immovable: true,
     })
@@ -247,6 +263,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.player,
       this.hazards,
+      (_p, h) => this.onHazardOverlap(h as Phaser.Physics.Arcade.Image),
+      (_p, h) => this.shouldProcessHazard(h as Phaser.Physics.Arcade.Image),
+      this,
+    )
+    this.physics.add.overlap(
+      this.player,
+      this.pickups,
       (_p, h) => this.onHazardOverlap(h as Phaser.Physics.Arcade.Image),
       (_p, h) => this.shouldProcessHazard(h as Phaser.Physics.Arcade.Image),
       this,
@@ -422,47 +445,39 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
     if (!this.textures.exists('spike')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: angular red/orange spike with warning-striped base (no glow)
       const w = 40
       const h = 36
-      g.fillStyle(RUNNER_COLORS.quantumDim, 1)
-      g.fillTriangle(0, h, w / 2, 0, w, h)
-      g.lineStyle(2, RUNNER_COLORS.quantum, 0.95)
-      g.strokeTriangle(0, h, w / 2, 0, w, h)
-      // base plate
-      g.fillStyle(RUNNER_COLORS.bronzeDark, 0.9)
-      g.fillRect(2, h - 6, w - 4, 6)
+      g.fillStyle(ART.danger, 1)
+      g.fillTriangle(1, h - 6, w / 2, 1, w - 1, h - 6)
+      g.fillStyle(ART.warn, 1)
+      g.fillTriangle(10, h - 8, w / 2, 12, w - 10, h - 8)
+      g.lineStyle(2, ART.outline, 1)
+      g.strokeTriangle(1, h - 6, w / 2, 1, w - 1, h - 6)
+      warningStripes(g, 1, h - 7, w - 2, 7, 4)
       g.generateTexture('spike', w, h)
       g.destroy()
     }
 
     if (!this.textures.exists('barrier')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: bad-ledger wall — slate core, warning-striped bands, red edge
       const w = 48
       const h = 120
-      g.fillStyle(RUNNER_COLORS.ledgerFace, 1)
-      g.fillRoundedRect(0, 0, w, h, 6)
-      g.lineStyle(2, RUNNER_COLORS.bronze, 0.9)
-      g.strokeRoundedRect(1, 1, w - 2, h - 2, 6)
-      g.lineStyle(1, RUNNER_COLORS.bronzeDark, 0.55)
-      for (let y = 16; y < h - 10; y += 14) {
-        g.lineBetween(8, y, w - 8, y)
-      }
-      // "BAD LEDGER" bar
-      g.fillStyle(RUNNER_COLORS.danger, 0.35)
-      g.fillRect(6, 10, w - 12, 14)
+      drawStripedSlab(g, w, h, { stripeEnds: true, band: 14 })
+      g.fillStyle(ART.slateLight, 1)
+      for (let y = 26; y < h - 22; y += 14) g.fillRect(9, y, w - 18, 5)
+      g.fillStyle(ART.danger, 1)
+      g.fillRect(6, h / 2 - 6, w - 12, 12)
       g.generateTexture('barrier', w, h)
       g.destroy()
     }
 
     if (!this.textures.exists('floater')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: spiky red mine (was a cyan/gold orb that looked like the power-up)
       const s = 36
-      g.fillStyle(RUNNER_COLORS.quantum, 0.25)
-      g.fillCircle(s / 2, s / 2, s / 2)
-      g.lineStyle(2, RUNNER_COLORS.quantum, 0.95)
-      g.strokeCircle(s / 2, s / 2, s / 2 - 1)
-      g.fillStyle(RUNNER_COLORS.bronzeBright, 0.85)
-      g.fillCircle(s / 2, s / 2, 6)
+      drawSpikyMine(g, s)
       g.generateTexture('floater', s, s)
       g.destroy()
     }
@@ -470,47 +485,29 @@ export class LedgerRunnerScene extends Phaser.Scene {
     // Low beam — must slide (clearly marked SLIDE)
     if (!this.textures.exists('lowbeam')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: low beam — red/orange striped, SLIDE bars at the bottom
       const w = 56
       const h = 100
-      g.fillStyle(RUNNER_COLORS.danger, 0.92)
-      g.fillRoundedRect(0, 0, w, h, 4)
-      g.lineStyle(2, 0xfef2f2, 0.9)
-      g.strokeRoundedRect(1, 1, w - 2, h - 2, 4)
-      g.fillStyle(0x020617, 0.85)
-      g.fillRect(6, h - 22, w - 12, 14)
+      g.fillStyle(ART.danger, 1)
+      g.fillRect(0, 0, w, h)
+      warningStripes(g, 0, 0, w, h - 26, 8)
+      g.fillStyle(ART.stripeDark, 1)
+      g.fillRect(4, h - 24, w - 8, 18)
       g.fillStyle(0xfef2f2, 1)
-      // simple “SLIDE” bars
-      g.fillRect(12, h - 16, w - 24, 3)
-      g.fillRect(12, h - 10, w - 24, 3)
+      g.fillRect(12, h - 18, w - 24, 3)
+      g.fillRect(12, h - 12, w - 24, 3)
+      g.lineStyle(2, ART.outline, 1)
+      g.strokeRect(1, 1, w - 2, h - 2)
       g.generateTexture('lowbeam', w, h)
       g.destroy()
     }
 
-    // SUPER power-up — bright gold star orb (force-refresh for newer art)
+    // FRIENDLY: SUPER power-up — glowing rounded gold badge with a white star
     if (this.textures.exists('powerup')) this.textures.remove('powerup')
     {
       const g = this.make.graphics({ x: 0, y: 0 })
-      const s = 40
-      const c = s / 2
-      // Soft outer glow
-      g.fillStyle(0xf0c14a, 0.28)
-      g.fillCircle(c, c, 19)
-      // Main coin
-      g.fillStyle(RUNNER_COLORS.bronzeBright, 1)
-      g.fillCircle(c, c, 14)
-      g.lineStyle(3, 0xfef3c7, 1)
-      g.strokeCircle(c, c, 14)
-      g.lineStyle(2, RUNNER_COLORS.bronze, 0.95)
-      g.strokeCircle(c, c, 11)
-      // 4-point star
-      g.fillStyle(0xfef3c7, 1)
-      g.fillTriangle(c, 6, c - 4, c, c + 4, c)
-      g.fillTriangle(c, s - 6, c - 4, c, c + 4, c)
-      g.fillTriangle(6, c, c, c - 4, c, c + 4)
-      g.fillTriangle(s - 6, c, c, c - 4, c, c + 4)
-      // Core spark
-      g.fillStyle(0xffffff, 0.95)
-      g.fillCircle(c, c, 3.2)
+      const s = 96
+      drawBadge(g, s, 'star')
       g.generateTexture('powerup', s, s)
       g.destroy()
     }
@@ -706,7 +703,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       return
     }
     // Ignore taps on the pause control (top-right)
-    if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
+    if (pointer.worldY < 48 && pointer.worldX > this.scale.width - 56) return
 
     if (!this.zonesFaded) {
       this.zonesFaded = true
@@ -715,7 +712,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
     // Jump is default. Slide only on a thin bottom strip of the *screen*
     // (not near the runner’s feet — that was eating jump taps).
-    if (this.isSlideTouch(pointer.y) && this.time.now >= this.slideLockUntil) {
+    if (this.isSlideTouch(pointer.worldY) && this.time.now >= this.slideLockUntil) {
       this.touchUi.pulse('b')
       if (this.onGround && !this.isSliding) {
         this.startSlide()
@@ -745,7 +742,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private createHud(width: number, height: number) {
     this.add
-      .rectangle(12, 12, 168, 58, 0x0f172a, 0.82)
+      .rectangle(12, 12, 168, 40, 0x0f172a, 0.82)
       .setOrigin(0, 0)
       .setStrokeStyle(1, RUNNER_COLORS.bronze, 0.35)
       .setDepth(30)
@@ -767,6 +764,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
         fontStyle: '600',
       })
       .setDepth(31)
+      // Claim threshold lives in the sidebar meter — keep the HUD to one number
+      .setVisible(false)
 
     this.hudCombo = this.add
       .text(width - 56, 22, '', {
@@ -781,15 +780,17 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.hudHint = this.add
       .text(
         width / 2,
-        height - 24,
+        height - 8,
         'SPACE jump  ·  ↓ / floor tap slide  ·  air tap jump  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: '12px',
+          fontSize: cssFont(this, 12, 14),
+          align: 'center',
+          wordWrap: { width: width - 40 },
           color: '#94a3b8',
         },
       )
-      .setOrigin(0.5)
+      .setOrigin(0.5, 1)
       .setDepth(30)
 
     createPauseButton(this, () => {
@@ -913,6 +914,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       cta.setText('TAP / SPACE TO RESTART')
     }
 
+    layoutStatusPanel(this, this.overlay)
     this.overlay.setVisible(true)
     this.overlay.setActive(true)
     this.hudHint.setText(
@@ -1024,6 +1026,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     stopTrail(this.trail)
 
     this.hazards.clear(true, true)
+    this.clearPickups()
     this.powered = false
     this.onPlatform = false
     this.waveIndex = 0
@@ -1128,7 +1131,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
         meta.scored = true
         this.applyPowerState(true)
         this.addScore(15)
-        haz.destroy()
+        this.destroyWorldObject(haz)
       }
       return
     }
@@ -1617,7 +1620,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private groundTrackRightEdge(): number {
     const s = this.softH()
     let maxR = this.scale.width
-    for (const haz of this.hazards.getChildren() as Phaser.Physics.Arcade.Image[]) {
+    for (const haz of this.worldObjects()) {
       const meta = haz.getData('meta') as HazardMeta | undefined
       if (!meta) continue
       if (meta.isPlatform || meta.lane === 'high') continue
@@ -1648,9 +1651,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   /** Remove ground obstacles that would sit inside a new pit / approach zone. */
   private clearGroundHazardsInRange(left: number, right: number) {
-    for (const haz of [
-      ...this.hazards.getChildren(),
-    ] as Phaser.Physics.Arcade.Image[]) {
+    for (const haz of this.worldObjects()) {
       const meta = haz.getData('meta') as HazardMeta | undefined
       if (!meta) continue
       if (meta.isPlatform || meta.isPit) continue
@@ -1658,7 +1659,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       const hx = haz.x
       const half = haz.displayWidth / 2
       if (hx + half > left && hx - half < right) {
-        haz.destroy()
+        this.destroyWorldObject(haz)
       }
     }
   }
@@ -1929,12 +1930,16 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const x = this.nextGroundSpawnX(30)
     // Easy grab height — single jump or run-under if low enough
     const y = this.groundY - Phaser.Math.Between(Math.round(42 * s), Math.round(72 * s))
-    const p = this.hazards.create(x, y, 'powerup') as Phaser.Physics.Arcade.Image
-    const size = 36 * s
+    const p = this.pickups.create(x, y, 'powerup') as Phaser.Physics.Arcade.Image
+    // Badge art is drawn larger (glow ring) but the pickup hitbox is unchanged:
+    // same world radius as before (0.42 × 36·s).
+    const size = 44 * s
     p.setDisplaySize(size, size)
     const body = p.body as Phaser.Physics.Arcade.Body
-    body.setCircle(p.frame.width * 0.42)
-    body.setOffset(p.frame.width * 0.08, p.frame.width * 0.08)
+    const fw = p.frame.width
+    const r = fw * 0.42 * (36 / 44)
+    body.setCircle(r)
+    body.setOffset(fw / 2 - r, fw / 2 - r)
     body.setAllowGravity(false)
     body.updateFromGameObject()
     p.setImmovable(true)
@@ -1951,10 +1956,22 @@ export class LedgerRunnerScene extends Phaser.Scene {
     p.setData('floatPhase', Math.random() * Math.PI * 2)
     p.setData('floatBase', y)
     p.setData('floatAmp', 12 * s)
-    attachQuantumPulse(this, p)
+    const label = this.add
+      .text(x, y - size * 0.62, 'SUPER', {
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: cssFont(this, 11, 14),
+        color: '#fef3c7',
+        fontStyle: '800',
+        stroke: '#0b1224',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(9)
+    p.setData('label', label)
+    const base = p.scale
     this.tweens.add({
       targets: p,
-      scale: { from: 0.92, to: 1.12 },
+      scale: { from: base * 0.94, to: base * 1.12 },
       duration: 480,
       yoyo: true,
       repeat: -1,
@@ -1991,7 +2008,6 @@ export class LedgerRunnerScene extends Phaser.Scene {
       lane: 'any',
     }
     floater.setData('meta', meta)
-    attachQuantumPulse(this, floater)
   }
 
   /**
@@ -2276,14 +2292,13 @@ export class LedgerRunnerScene extends Phaser.Scene {
           dangerBottom: midAir + 18 * s,
           lane: 'ground',
         } satisfies HazardMeta)
-        attachQuantumPulse(this, floater)
       }
     })
   }
 
   private updateHazards(delta: number) {
     const dx = this.scrollSpeed * (delta / 1000)
-    const children = this.hazards.getChildren() as Phaser.Physics.Arcade.Image[]
+    const children = this.worldObjects()
 
     for (const haz of children) {
       haz.x -= dx
@@ -2306,6 +2321,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
         const base = haz.getData('floatBase') as number
         const amp = (haz.getData('floatAmp') as number) ?? 12
         haz.y = base + Math.sin(phase) * amp
+        if (haz.texture.key === 'floater') haz.rotation += delta * 0.0025
+        const label = haz.getData('label') as Phaser.GameObjects.Text | undefined
+        label?.setPosition(haz.x, haz.y - haz.displayHeight * 0.55)
       }
 
       const body = haz.body as Phaser.Physics.Arcade.Body | null
@@ -2370,11 +2388,31 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private cullHazards() {
-    const children = this.hazards.getChildren() as Phaser.Physics.Arcade.Image[]
+    const children = this.worldObjects()
     for (const haz of children) {
       if (haz.x < -100) {
-        haz.destroy()
+        this.destroyWorldObject(haz)
       }
+    }
+  }
+
+  /** Hazards + pickups — everything that scrolls with the track. */
+  private worldObjects(): Phaser.Physics.Arcade.Image[] {
+    return [
+      ...this.hazards.getChildren(),
+      ...(this.pickups?.getChildren() ?? []),
+    ] as Phaser.Physics.Arcade.Image[]
+  }
+
+  private destroyWorldObject(obj: Phaser.Physics.Arcade.Image) {
+    const label = obj.getData('label') as Phaser.GameObjects.Text | undefined
+    label?.destroy()
+    obj.destroy()
+  }
+
+  private clearPickups() {
+    for (const p of [...(this.pickups?.getChildren() ?? [])] as Phaser.Physics.Arcade.Image[]) {
+      this.destroyWorldObject(p)
     }
   }
 
