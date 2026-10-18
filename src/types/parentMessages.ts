@@ -21,6 +21,8 @@ export type ArcadeToParentMessage =
   | { type: 'GAME_READY' }
   | { type: 'SCORE_UPDATE'; game: string; score: number }
   | { type: 'CLAIM_REQUEST'; game: string; score: number }
+  /** Ask the portal to open its wallet (create / unlock) because none is connected. */
+  | { type: 'CONNECT_WALLET_REQUEST' }
 
 export type ClaimResultPayload = Extract<
   ParentToArcadeMessage,
@@ -66,6 +68,7 @@ export function isArcadeToParentMessage(
 
   switch (record.type) {
     case 'GAME_READY':
+    case 'CONNECT_WALLET_REQUEST':
       return true
     case 'SCORE_UPDATE':
     case 'CLAIM_REQUEST':

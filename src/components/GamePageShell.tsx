@@ -42,6 +42,7 @@ export function GamePageShell({
     sendClaimRequest,
     lastClaimResult,
     clearClaimResult,
+    requestWalletConnect,
   } = useParentCommunication()
   const [playFocus, setPlayFocus] = useState(false)
   const [showNewBest, setShowNewBest] = useState(false)
@@ -76,6 +77,8 @@ export function GamePageShell({
   }, [lastClaimResult, gameSlug, clearClaimResult])
 
   const canClaim = claimEnabled && isConnected
+  // Embedded without a wallet: the claim button asks the portal to open its wallet instead of sitting disabled.
+  const needsConnect = isEmbedded && !isConnected
   const progressScore = Math.max(score, bestScore ?? 0, scoreForClaim)
   const thresholdMet =
     rewardThreshold !== undefined
@@ -199,10 +202,10 @@ export function GamePageShell({
             <button
               type="button"
               className={`${claimClass} play-chrome__claim`}
-              disabled={!canClaim || claimPending}
-              onClick={handleClaim}
+              disabled={needsConnect ? false : !canClaim || claimPending}
+              onClick={needsConnect ? requestWalletConnect : handleClaim}
             >
-              {claimPending ? '…' : canClaim ? 'Claim' : claimLabel}
+              {claimPending ? '…' : canClaim ? 'Claim' : needsConnect ? 'Connect wallet' : claimLabel}
             </button>
           </div>
 
@@ -259,10 +262,10 @@ export function GamePageShell({
             <button
               type="button"
               className={claimClass}
-              disabled={!canClaim || claimPending}
-              onClick={handleClaim}
+              disabled={needsConnect ? false : !canClaim || claimPending}
+              onClick={needsConnect ? requestWalletConnect : handleClaim}
             >
-              {claimPending ? 'Claiming…' : claimLabel}
+              {claimPending ? 'Claiming…' : needsConnect ? 'Connect wallet' : claimLabel}
             </button>
 
             {lastClaimResult && lastClaimResult.game === gameSlug ? (

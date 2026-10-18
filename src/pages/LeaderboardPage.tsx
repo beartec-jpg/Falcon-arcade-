@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { gameDefinitions } from '../utils/games'
+import { portalApiBase } from '../utils/iframe'
 
 interface Entry {
   rank: number
@@ -8,11 +9,7 @@ interface Entry {
   score: number
 }
 
-const PORTAL =
-  (import.meta.env.VITE_PORTAL_API_URL as string | undefined)?.replace(
-    /\/$/,
-    '',
-  ) ?? ''
+const PORTAL = portalApiBase()
 
 export function LeaderboardPage() {
   const [game, setGame] = useState(gameDefinitions[0]?.slug ?? 'falcon-flight')
