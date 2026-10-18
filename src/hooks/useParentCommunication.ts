@@ -21,6 +21,11 @@ import {
   isInIframe,
   resolveOutboundTargetOrigin,
 } from '../utils/iframe'
+import {
+  ARCADE_CLAIM_THRESHOLD,
+  stepRun,
+  type RunState,
+} from '../utils/claimProgress'
 
 const MOCK_WALLET_ADDRESS = 'rMockFalconArcadeDev000000000000'
 
@@ -29,6 +34,11 @@ export type ParentCommunicationValue = {
   address: string | null
   isConnected: boolean
   lastClaimResult: ClaimResultPayload | null
+  /**
+   * Claim progress per game: the sum of your runs today since the last claim.
+   * The portal's server value replaces the local estimate whenever it arrives.
+   */
+  claimProgress: Record<string, number>
   clearClaimResult: () => void
   connectMockWallet: () => void
   disconnectMockWallet: () => void
@@ -87,14 +97,23 @@ export function ParentCommunicationProvider({
   const trustedOriginRef = useRef<string | null>(null)
   trustedOriginRef.current = trustedParentOrigin
 
+  const [claimProgress, setClaimProgress] = useState<Record<string, number>>({})
+  const runsRef = useRef<Map<string, RunState>>(new Map())
+
   const notifyGameReady = useCallback(() => {
     postToParent({ type: 'GAME_READY' }, trustedOriginRef.current, isEmbedded)
   }, [isEmbedded])
 
   const sendScoreUpdate = useCallback(
     (game: string, score: number) => {
+      // Each run starts from zero: a lower score than last reported = new run.
+      const { run, delta } = stepRun(runsRef.current.get(game), score)
+      runsRef.current.set(game, run)
+      if (delta > 0) {
+        setClaimProgress((p) => ({ ...p, [game]: (p[game] ?? 0) + delta }))
+      }
       postToParent(
-        { type: 'SCORE_UPDATE', game, score },
+        { type: 'SCORE_UPDATE', game, score, runId: run.runId },
         trustedOriginRef.current,
         isEmbedded,
       )
@@ -106,7 +125,12 @@ export function ParentCommunicationProvider({
     (game: string, score: number) => {
       setLastClaimResult(null)
       postToParent(
-        { type: 'CLAIM_REQUEST', game, score },
+        {
+          type: 'CLAIM_REQUEST',
+          game,
+          score,
+          runId: runsRef.current.get(game)?.runId,
+        },
         trustedOriginRef.current,
         isEmbedded,
       )
@@ -164,8 +188,21 @@ export function ParentCommunicationProvider({
         setAddress(null)
         return
       }
+      if (event.data.type === 'PROGRESS_UPDATE') {
+        const { game, progress } = event.data
+        setClaimProgress((p) => ({ ...p, [game]: Math.max(0, progress) }))
+        return
+      }
       if (event.data.type === 'CLAIM_RESULT') {
-        setLastClaimResult(event.data)
+        const result = event.data
+        setLastClaimResult(result)
+        if (result.ok) {
+          // A claim consumes the threshold; the portal's PROGRESS_UPDATE corrects this.
+          setClaimProgress((p) => ({
+            ...p,
+            [result.game]: Math.max(0, (p[result.game] ?? 0) - ARCADE_CLAIM_THRESHOLD),
+          }))
+        }
       }
     }
 
@@ -183,6 +220,7 @@ export function ParentCommunicationProvider({
       address,
       isConnected: address !== null,
       lastClaimResult,
+      claimProgress,
       clearClaimResult,
       connectMockWallet,
       disconnectMockWallet,
@@ -196,6 +234,7 @@ export function ParentCommunicationProvider({
       isEmbedded,
       address,
       lastClaimResult,
+      claimProgress,
       clearClaimResult,
       connectMockWallet,
       disconnectMockWallet,

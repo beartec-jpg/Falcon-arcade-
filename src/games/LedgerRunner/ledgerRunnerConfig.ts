@@ -2,7 +2,7 @@
 
 export const LEDGER_RUNNER_SLUG = 'ledger-runner'
 
-/** Score required to enable the Game Faucet claim for this game (best single run). */
+/** Score required to enable the Game Faucet claim for this game (sum of today's runs since the last claim). */
 export const LEDGER_RUNNER_REWARD_THRESHOLD = 500
 
 export const RUNNER_COLORS = {

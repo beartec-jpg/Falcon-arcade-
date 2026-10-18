@@ -12,7 +12,7 @@ import { AmendmentApocalypseGame } from './AmendmentApocalypseGame'
 const game = getGameDefinition('amendment-apocalypse')
 
 export function AmendmentApocalypsePage() {
-  const { sendScoreUpdate } = useParentCommunication()
+  const { sendScoreUpdate, claimProgress } = useParentCommunication()
   const [score, setScore] = useState(0)
   const [bestScore, setBestScore] = useState(0)
   const [tier, setTier] = useState(1)
@@ -47,7 +47,8 @@ export function AmendmentApocalypsePage() {
     }
   }, [sendScoreUpdate])
 
-  const claimScore = Math.max(score, bestScore)
+  // Runs add up: claim progress = today's run scores since the last claim.
+  const claimScore = claimProgress[AMENDMENT_SLUG] ?? 0
   const claimEnabled = claimScore >= AMENDMENT_REWARD_THRESHOLD
 
   const statusTitle =
@@ -61,8 +62,8 @@ export function AmendmentApocalypsePage() {
     gameState === 'playing'
       ? 'Tap a spot to fly there (or WASD). Hold to steer while finger is down. Weapons auto-fire. Grab green+ upgrade scrolls.'
       : gameState === 'gameover'
-        ? `Final score ${score}. Reach ${AMENDMENT_REWARD_THRESHOLD} to unlock the Game Faucet claim.`
-        : `Shoot mode — free-roam arena, auto-fire, green+ upgrades and Hard Forks. Claim at ${AMENDMENT_REWARD_THRESHOLD}.`
+        ? `Final score ${score}. It adds to your claim progress (${claimScore} / ${AMENDMENT_REWARD_THRESHOLD}) — runs add up.`
+        : `Shoot mode — free-roam arena, auto-fire, green+ upgrades and Hard Forks. Runs add up — claim at ${AMENDMENT_REWARD_THRESHOLD} total.`
 
   return (
     <GamePageShell

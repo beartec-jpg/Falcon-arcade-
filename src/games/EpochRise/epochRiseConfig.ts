@@ -2,7 +2,7 @@
 
 export const EPOCH_RISE_SLUG = 'epoch-rise'
 
-/** Score required to enable the Game Faucet claim for this game (best single run). */
+/** Score required to enable the Game Faucet claim for this game (sum of today's runs since the last claim). */
 export const EPOCH_RISE_REWARD_THRESHOLD = 500
 
 export const EPOCH_COLORS = {

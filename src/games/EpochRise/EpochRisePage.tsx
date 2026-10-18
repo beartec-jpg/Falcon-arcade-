@@ -13,7 +13,7 @@ import { EpochRiseGame } from './EpochRiseGame'
 const epochRise = getGameDefinition('epoch-rise')
 
 export function EpochRisePage() {
-  const { sendScoreUpdate } = useParentCommunication()
+  const { sendScoreUpdate, claimProgress } = useParentCommunication()
   const [score, setScore] = useState(0)
   const [bestScore, setBestScore] = useState(0)
   const [energy, setEnergy] = useState<number>(EPOCH_RISE.maxEnergy)
@@ -51,7 +51,8 @@ export function EpochRisePage() {
     }
   }, [sendScoreUpdate])
 
-  const claimScore = Math.max(score, bestScore)
+  // Runs add up: claim progress = today's run scores since the last claim.
+  const claimScore = claimProgress[EPOCH_RISE_SLUG] ?? 0
   const claimEnabled = claimScore >= EPOCH_RISE_REWARD_THRESHOLD
   const energyPct = Math.round((energy / maxEnergy) * 100)
 
@@ -66,8 +67,8 @@ export function EpochRisePage() {
     gameState === 'playing'
       ? `Energy ${energyPct}%. Tap a spot to fly there (or WASD). Hold to steer while finger is down. Space dashes in your move direction.`
       : gameState === 'gameover'
-        ? `Final score ${score}. Reach ${EPOCH_RISE_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
-        : `Start at the bottom of the rise. Free 2D flight — up/down/left/right — for orbs and hazards. Claim unlocks at ${EPOCH_RISE_REWARD_THRESHOLD} points.`
+        ? `Final score ${score}. It adds to your claim progress (${claimScore} / ${EPOCH_RISE_REWARD_THRESHOLD}) — runs add up.`
+        : `Start at the bottom of the rise. Free 2D flight — up/down/left/right — for orbs and hazards. Your runs add up — claim at ${EPOCH_RISE_REWARD_THRESHOLD} points in total.`
 
   return (
     <GamePageShell
