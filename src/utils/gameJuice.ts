@@ -71,8 +71,9 @@ export function startTrail(
   emitter: Phaser.GameObjects.Particles.ParticleEmitter,
   target: Phaser.GameObjects.GameObject & { x: number; y: number },
   offsetX = -8,
+  offsetY = 0,
 ) {
-  emitter.startFollow(target, offsetX, 0, false)
+  emitter.startFollow(target, offsetX, offsetY, false)
   emitter.start()
 }
 
