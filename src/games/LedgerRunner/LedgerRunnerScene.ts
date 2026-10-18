@@ -10,11 +10,12 @@ import {
 } from '../../utils/hazardArt'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
-  animateRunnerEmblem,
-  createRunnerEmblem,
-  type CharacterMood,
-  type RunnerEmblem,
-} from '../../utils/emblemCharacters'
+  animateCourier,
+  COURIER,
+  courierMobileScale,
+  createCourier,
+  type Courier,
+} from '../../utils/courierSprite'
 import {
   attachQuantumPulse,
   createDataStream,
@@ -118,7 +119,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
   private player!: Phaser.Physics.Arcade.Image
   private playerVisual!: Phaser.GameObjects.Container
-  private runnerEmblem!: RunnerEmblem
+  private runnerEmblem!: Courier
+  /** Visual-only courier scale (×1.2 on phones); hitbox never changes. */
+  private courierScale = 1
   private hazards!: Phaser.Physics.Arcade.Group
   private pickups!: Phaser.Physics.Arcade.Group
   private groundY: number = LEDGER_RUNNER.groundY
@@ -241,8 +244,9 @@ export class LedgerRunnerScene extends Phaser.Scene {
       immovable: true,
     })
 
-    this.trail = createPlayerTrail(this, 9)
-    this.runnerEmblem = createRunnerEmblem(
+    this.trail = createPlayerTrail(this, 9, 'subtle')
+    this.courierScale = courierMobileScale(this)
+    this.runnerEmblem = createCourier(
       this,
       LEDGER_RUNNER.playerX,
       this.groundY - LEDGER_RUNNER.playerH / 2,
@@ -955,7 +959,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.player.y = floor - half
       body.updateFromGameObject()
     }
-    this.playerVisual.setScale(power)
+    this.playerVisual.setScale(power * this.courierScale)
   }
 
   private setSlideBody() {
@@ -970,7 +974,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
     const half = this.player.displayHeight / 2
     this.player.y = this.floorY() - half
     body.updateFromGameObject()
-    this.playerVisual.setScale(power * 1.05, power * 0.7)
+    // Slide pose is its own low frame — no squash needed
+    this.playerVisual.setScale(power * this.courierScale)
   }
 
   private applyPowerState(powered: boolean, flash = true) {
@@ -1297,11 +1302,12 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.jumpBoostUntil = this.time.now + 150
 
     this.tweens.killTweensOf(this.playerVisual)
-    this.playerVisual.setScale(1, 1)
+    const vs = (this.powered ? LEDGER_RUNNER.powerScale : 1) * this.courierScale
+    this.playerVisual.setScale(vs, vs)
     this.tweens.add({
       targets: this.playerVisual,
-      scaleY: 0.88,
-      scaleX: 1.08,
+      scaleY: vs * 0.92,
+      scaleX: vs * 1.05,
       duration: 70,
       yoyo: true,
     })
@@ -1351,7 +1357,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
    */
   private visualFootExtent(): number {
     const sc = Math.abs(this.playerVisual?.scaleY || 1)
-    return 26 * sc
+    return COURIER.footY * sc
   }
 
   private updateGrounded() {
@@ -1453,13 +1459,10 @@ export class LedgerRunnerScene extends Phaser.Scene {
     if (!this.playerVisual || !this.player || !this.runnerEmblem) return
 
     this.playerVisual.x = this.player.x
-    // Sit visual feet on the walk surface (emblem boots hang below hitbox center)
+    // All courier frames share the hitbox-centre origin with feet at +footY,
+    // so grounded / sliding frames just stand on the walk surface.
     if (this.onGround || this.isSliding) {
-      const foot = this.visualFootExtent()
-      const surface = this.floorY()
-      // When sliding, crouch emblem is shorter
-      const footDown = this.isSliding ? foot * 0.72 : foot
-      this.playerVisual.y = surface - footDown
+      this.playerVisual.y = this.floorY() - this.visualFootExtent()
     } else {
       this.playerVisual.y = this.player.y
     }
@@ -1470,35 +1473,25 @@ export class LedgerRunnerScene extends Phaser.Scene {
       this.runBob += delta * 0.4
     }
 
-    let mood: CharacterMood = 'idle'
-    if (this.state === 'gameover') mood = 'dead'
-    else if (this.state === 'playing') {
-      if (this.isSliding) mood = 'boost'
-      else if (!this.onGround) mood = 'boost'
-      else mood = this.combo >= 4 ? 'boost' : 'play'
+    if (this.state !== 'gameover') {
+      // Upright courier; ease any leftover tilt back (time-based)
+      const k = 1 - Math.exp(-Math.min(delta, 100) / 80)
+      this.playerVisual.angle += (0 - this.playerVisual.angle) * k
     }
 
-    if (!this.onGround && this.state === 'playing' && !this.isSliding) {
-      this.playerVisual.angle = Phaser.Math.Clamp(
-        (this.player.body?.velocity.y ?? 0) / 40,
-        -18,
-        22,
-      )
-    } else if (!this.isSliding) {
-      this.playerVisual.angle = Phaser.Math.Linear(this.playerVisual.angle, 0, 0.2)
-    }
-
-    animateRunnerEmblem(this.runnerEmblem, delta, this.runBob, mood, {
-      onGround: this.onGround && this.state === 'playing',
+    animateCourier(this.runnerEmblem, delta, {
+      now: this.time.now,
+      playing: this.state === 'playing',
+      dead: this.state === 'gameover',
+      onGround: this.onGround,
       sliding: this.isSliding,
-      runBob: this.runBob,
-      vy: this.player.body?.velocity.y ?? 0,
       speedFactor:
         this.state === 'playing'
           ? this.scrollSpeed / LEDGER_RUNNER.baseScrollSpeed
           : 0.9,
     })
   }
+
 
   // ── scoring ────────────────────────────────────────────
 
