@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { GameStartButton } from '../../components/GameStartButton'
 import { usePhaserGame } from '../../hooks/usePhaserGame'
 import {
   LEDGER_RUNNER,
@@ -26,7 +27,7 @@ export function LedgerRunnerGame({
     bridgeRef.current = { onScoreChange, onStateChange }
   }, [onScoreChange, onStateChange])
 
-  const containerRef = usePhaserGame(LedgerRunnerScene, {
+  const { containerRef, phase, requestStart } = usePhaserGame(LedgerRunnerScene, {
     width: LEDGER_RUNNER.width,
     height: LEDGER_RUNNER.height,
     backgroundColor: RUNNER_COLORS.bgHex,
@@ -41,11 +42,14 @@ export function LedgerRunnerGame({
   })
 
   return (
-    <div
-      ref={containerRef}
-      className="phaser-game-host"
-      role="application"
-      aria-label="Ledger Runner game canvas"
-    />
+    <div className="phaser-game-wrap" data-phase={phase ?? 'loading'}>
+      <div
+        ref={containerRef}
+        className="phaser-game-host"
+        role="application"
+        aria-label="Ledger Runner game canvas"
+      />
+      <GameStartButton phase={phase} onStart={requestStart} />
+    </div>
   )
 }

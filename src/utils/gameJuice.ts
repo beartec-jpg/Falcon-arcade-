@@ -489,7 +489,8 @@ export function markHowToSeen(gameSlug: string) {
 
 export type HowToOverlay = {
   container: Phaser.GameObjects.Container
-  dismiss: () => void
+  /** Idempotent. `immediate` skips the fade so a start can follow at once. */
+  dismiss: (immediate?: boolean) => void
 }
 
 export function createHowToOverlay(
@@ -537,7 +538,16 @@ export function createHowToOverlay(
     Phaser.Geom.Rectangle.Contains,
   )
 
-  const dismiss = () => {
+  let dismissed = false
+  const dismiss = (immediate = false) => {
+    if (dismissed) return
+    dismissed = true
+    container.disableInteractive()
+    if (immediate) {
+      container.destroy(true)
+      onDismiss()
+      return
+    }
     scene.tweens.add({
       targets: container,
       alpha: 0,
@@ -549,7 +559,8 @@ export function createHowToOverlay(
       },
     })
   }
-  container.on('pointerdown', dismiss)
+  // Taps are routed by the scene (canvas pointerdown → requestStart), so a
+  // tap anywhere — not only inside this panel — dismisses and starts.
 
   scene.tweens.add({
     targets: cta,

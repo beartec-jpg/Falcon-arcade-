@@ -26,3 +26,4 @@ dist-ssr
 # local helper files
 GITHUB_SSH_KEY*
 public-key-share/
+e2e-shots

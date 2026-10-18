@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   animateRunnerEmblem,
   createRunnerEmblem,
@@ -10,6 +11,7 @@ import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  type HowToOverlay,
   createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
@@ -94,6 +96,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
   private state: LedgerRunnerGameState = 'ready'
   private paused = false
   private waitingHowTo = false
+  private howTo?: HowToOverlay
   private score = 0
   private bestScore = 0
   private combo = 0
@@ -255,6 +258,7 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.touchUi.labelB.setText('BOTTOM SLIDE')
 
     this.setupInput()
+    bindStartRequests(this, () => this.requestStart())
     this.createHud(width, height)
     this.deathEmitter = createDeathEmitter(this)
     this.sparkEmitter = createSparkEmitter(this)
@@ -262,7 +266,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
 
     if (!hasSeenHowTo(LEDGER_RUNNER_SLUG)) {
       this.waitingHowTo = true
-      createHowToOverlay(
+      emitPhase(this, 'howto')
+      this.howTo = createHowToOverlay(
         this,
         'Ledger Runner',
         [
@@ -694,20 +699,14 @@ export class LedgerRunnerScene extends Phaser.Scene {
   }
 
   private handlePointerTap(pointer: Phaser.Input.Pointer) {
-    if (this.waitingHowTo || this.paused) return
+    if (this.paused) return
+    // Not playing: any tap on the canvas starts / restarts (and dismisses how-to)
+    if (this.waitingHowTo || this.state !== 'playing') {
+      this.requestStart()
+      return
+    }
     // Ignore taps on the pause control (top-right)
     if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
-
-    if (this.state === 'ready') {
-      this.beginRun()
-      return
-    }
-    if (this.state === 'gameover') {
-      this.resetRun()
-      this.beginRun()
-      return
-    }
-    if (this.state !== 'playing') return
 
     if (!this.zonesFaded) {
       this.zonesFaded = true
@@ -885,18 +884,8 @@ export class LedgerRunnerScene extends Phaser.Scene {
     container.setData('body', body)
     container.setData('cta', cta)
     container.setSize(440, 220)
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(-220, -110, 440, 220),
-      Phaser.Geom.Rectangle.Contains,
-    )
-    container.on('pointerdown', () => {
-      if (this.state === 'ready') {
-        this.beginRun()
-      } else if (this.state === 'gameover') {
-        this.resetRun()
-        this.beginRun()
-      }
-    })
+    // Start / restart taps are handled scene-wide (pointerdown anywhere →
+    // requestStart) and by the DOM start button, not by this panel's hitbox.
 
     this.overlay = container
   }
@@ -2402,7 +2391,28 @@ export class LedgerRunnerScene extends Phaser.Scene {
     this.getBridge()?.onScoreChange(score)
   }
 
+  /**
+   * Single entry point for start / restart from every input path: canvas
+   * pointerdown anywhere, the DOM start button, and keyboard. No focus needed.
+   */
+  requestStart() {
+    if (this.paused) return
+    if (this.waitingHowTo) {
+      // Dismiss synchronously (its callback shows 'ready'), then start.
+      this.howTo?.dismiss(true)
+      this.howTo = undefined
+      if (this.waitingHowTo) return
+    }
+    if (this.state === 'ready') {
+      this.beginRun()
+    } else if (this.state === 'gameover') {
+      this.resetRun()
+      this.beginRun()
+    }
+  }
+
   private emitState(state: LedgerRunnerGameState) {
+    emitPhase(this, state)
     this.getBridge()?.onStateChange(state)
   }
 }
