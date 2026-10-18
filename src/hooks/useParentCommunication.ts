@@ -36,6 +36,7 @@ export type ParentCommunicationValue = {
   notifyGameReady: () => void
   sendScoreUpdate: (game: string, score: number) => void
   sendClaimRequest: (game: string, score: number) => void
+  requestWalletConnect: () => void
 }
 
 const ParentCommunicationContext =
@@ -113,6 +114,10 @@ export function ParentCommunicationProvider({
     [isEmbedded],
   )
 
+  const requestWalletConnect = useCallback(() => {
+    postToParent({ type: 'CONNECT_WALLET_REQUEST' }, trustedOriginRef.current, isEmbedded)
+  }, [isEmbedded])
+
   const clearClaimResult = useCallback(() => {
     setLastClaimResult(null)
   }, [])
@@ -185,6 +190,7 @@ export function ParentCommunicationProvider({
       notifyGameReady,
       sendScoreUpdate,
       sendClaimRequest,
+      requestWalletConnect,
     }),
     [
       isEmbedded,
@@ -197,6 +203,7 @@ export function ParentCommunicationProvider({
       notifyGameReady,
       sendScoreUpdate,
       sendClaimRequest,
+      requestWalletConnect,
     ],
   )
 

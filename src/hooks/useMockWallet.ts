@@ -15,12 +15,14 @@ export function useMockWallet() {
     isConnected,
     isEmbedded,
     toggleMockWallet,
+    requestWalletConnect,
   } = useParentCommunication()
 
   return {
-    address: address ?? (isEmbedded ? 'Waiting for portal…' : 'Mock wallet'),
+    address: address ?? (isEmbedded ? 'No wallet' : 'Mock wallet'),
     isConnected,
     isEmbedded,
     toggleConnection: toggleMockWallet,
+    requestWalletConnect,
   }
 }
