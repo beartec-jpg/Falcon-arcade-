@@ -79,7 +79,8 @@ export function GamePageShell({
   const canClaim = claimEnabled && isConnected
   // Embedded without a wallet: the claim button asks the portal to open its wallet instead of sitting disabled.
   const needsConnect = isEmbedded && !isConnected
-  const progressScore = Math.max(score, bestScore ?? 0, scoreForClaim)
+  // Claim progress = sum of today's runs since the last claim (not the best run).
+  const progressScore = scoreForClaim
   const thresholdMet =
     rewardThreshold !== undefined
       ? progressScore >= rewardThreshold
@@ -126,7 +127,7 @@ export function GamePageShell({
       : claimEnabled
         ? 'Claim Reward'
         : rewardThreshold !== undefined
-          ? `Reach ${rewardThreshold} to claim`
+          ? `${Math.min(Math.floor(progressScore), rewardThreshold)} / ${rewardThreshold}`
           : 'Claim Reward'
 
   const claimClass = `claim-button${canClaim ? ' claim-button--ready claim-button--pulse' : ''}${
@@ -235,9 +236,9 @@ export function GamePageShell({
                   aria-label="Reward threshold progress"
                 >
                   <div className="threshold-meter__header">
-                    <span>Claim threshold</span>
+                    <span>Claim progress (runs add up)</span>
                     <span>
-                      {Math.min(progressScore, rewardThreshold)} / {rewardThreshold}
+                      {Math.min(Math.floor(progressScore), rewardThreshold)} / {rewardThreshold}
                     </span>
                   </div>
                   <div className="threshold-meter__track">
@@ -249,7 +250,7 @@ export function GamePageShell({
                   <p className="page-copy">
                     {thresholdMet
                       ? 'Threshold reached — claim when your wallet is connected.'
-                      : 'Score keeps counting for the epoch leaderboard after the threshold.'}
+                      : 'Every run adds to this total today; the leaderboard still ranks your best single run.'}
                   </p>
                 </div>
               ) : (

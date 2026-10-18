@@ -12,7 +12,7 @@ import { FalconFlightGame } from './FalconFlightGame'
 const falconFlight = getGameDefinition('falcon-flight')
 
 export function FalconFlightPage() {
-  const { sendScoreUpdate } = useParentCommunication()
+  const { sendScoreUpdate, claimProgress } = useParentCommunication()
   const [score, setScore] = useState(0)
   const [bestScore, setBestScore] = useState(0)
   const [gameState, setGameState] = useState<FalconFlightGameState>('ready')
@@ -45,7 +45,8 @@ export function FalconFlightPage() {
     }
   }, [sendScoreUpdate])
 
-  const claimScore = Math.max(score, bestScore)
+  // Runs add up: claim progress = today's run scores since the last claim.
+  const claimScore = claimProgress[FALCON_FLIGHT_SLUG] ?? 0
   const claimEnabled = claimScore >= FALCON_FLIGHT_REWARD_THRESHOLD
 
   const statusTitle =
@@ -59,8 +60,8 @@ export function FalconFlightPage() {
     gameState === 'playing'
       ? 'Tap a height to fly there (or ↑↓ / W S). Hold to steer while finger is down. Gaps move high and low.'
       : gameState === 'gameover'
-        ? `Final score ${score}. Reach ${FALCON_FLIGHT_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
-        : `Horizontal auto-scroller — fly forward, dodge ledger blocks and quantum static. Claim unlocks at ${FALCON_FLIGHT_REWARD_THRESHOLD} points.`
+        ? `Final score ${score}. It adds to your claim progress (${claimScore} / ${FALCON_FLIGHT_REWARD_THRESHOLD}) — runs add up.`
+        : `Horizontal auto-scroller — fly forward, dodge ledger blocks and quantum static. Your runs add up — claim at ${FALCON_FLIGHT_REWARD_THRESHOLD} points in total.`
 
   return (
     <GamePageShell

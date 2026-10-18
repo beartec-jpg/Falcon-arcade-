@@ -15,12 +15,18 @@ export type ParentToArcadeMessage =
       amount?: number
       error?: string
     }
+  /**
+   * Server-side claim progress for a game: sum of today's run scores since the
+   * last claim (authoritative; the claim unlocks at minScore).
+   */
+  | { type: 'PROGRESS_UPDATE'; game: string; progress: number; minScore?: number }
 
 /** Messages the arcade posts to the parent portal. */
 export type ArcadeToParentMessage =
   | { type: 'GAME_READY' }
-  | { type: 'SCORE_UPDATE'; game: string; score: number }
-  | { type: 'CLAIM_REQUEST'; game: string; score: number }
+  /** runId: one id per run so the portal can add runs up toward the claim. */
+  | { type: 'SCORE_UPDATE'; game: string; score: number; runId?: string }
+  | { type: 'CLAIM_REQUEST'; game: string; score: number; runId?: string }
   /** Ask the portal to open its wallet (create / unlock) because none is connected. */
   | { type: 'CONNECT_WALLET_REQUEST' }
 
@@ -44,6 +50,16 @@ export function isParentToArcadeMessage(
 
   if (record.type === 'WALLET_DISCONNECTED') {
     return true
+  }
+
+  if (record.type === 'PROGRESS_UPDATE') {
+    return (
+      typeof record.game === 'string' &&
+      record.game.length > 0 &&
+      typeof record.progress === 'number' &&
+      Number.isFinite(record.progress) &&
+      (record.minScore === undefined || typeof record.minScore === 'number')
+    )
   }
 
   if (record.type === 'CLAIM_RESULT') {
@@ -76,7 +92,8 @@ export function isArcadeToParentMessage(
         typeof record.game === 'string' &&
         record.game.length > 0 &&
         typeof record.score === 'number' &&
-        Number.isFinite(record.score)
+        Number.isFinite(record.score) &&
+        (record.runId === undefined || typeof record.runId === 'string')
       )
     default:
       return false

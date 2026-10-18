@@ -12,7 +12,7 @@ import { LedgerRunnerGame } from './LedgerRunnerGame'
 const ledgerRunner = getGameDefinition('ledger-runner')
 
 export function LedgerRunnerPage() {
-  const { sendScoreUpdate } = useParentCommunication()
+  const { sendScoreUpdate, claimProgress } = useParentCommunication()
   const [score, setScore] = useState(0)
   const [bestScore, setBestScore] = useState(0)
   const [gameState, setGameState] = useState<LedgerRunnerGameState>('ready')
@@ -43,7 +43,8 @@ export function LedgerRunnerPage() {
     }
   }, [sendScoreUpdate])
 
-  const claimScore = Math.max(score, bestScore)
+  // Runs add up: claim progress = today's run scores since the last claim.
+  const claimScore = claimProgress[LEDGER_RUNNER_SLUG] ?? 0
   const claimEnabled = claimScore >= LEDGER_RUNNER_REWARD_THRESHOLD
 
   const statusTitle =
@@ -57,8 +58,8 @@ export function LedgerRunnerPage() {
     gameState === 'playing'
       ? 'Jump spikes and floor pits (wide pits need double-jump). Slide under low beams. SUPER = one free hit. High runways skip ground hazards.'
       : gameState === 'gameover'
-        ? `Final score ${score}. Reach ${LEDGER_RUNNER_REWARD_THRESHOLD} to unlock the Game Faucet claim for this epoch.`
-        : `Horizontal auto-runner — jump quantum spikes, slide under bad ledgers, dodge floaters. Claim unlocks at ${LEDGER_RUNNER_REWARD_THRESHOLD} points.`
+        ? `Final score ${score}. It adds to your claim progress (${claimScore} / ${LEDGER_RUNNER_REWARD_THRESHOLD}) — runs add up.`
+        : `Horizontal auto-runner — jump quantum spikes, slide under bad ledgers, dodge floaters. Your runs add up — claim at ${LEDGER_RUNNER_REWARD_THRESHOLD} points in total.`
 
   return (
     <GamePageShell

@@ -10,9 +10,9 @@ export function HomePage() {
           <h2 className="hero__title">Play. Score. Claim Falcon.</h2>
           <p className="hero__copy">
             Four mini-games are live. Scores feed daily leaderboards and a
-            secondary Game Faucet inside the Falcon Ledger portal — hit{' '}
-            <strong>500</strong> on a single run to unlock a claim (portal caps
-            payouts; keep playing for high scores anytime).
+            secondary Game Faucet inside the Falcon Ledger portal — your run
+            scores add up, so <strong>500</strong> points in total today unlocks
+            a claim (portal caps payouts; keep playing for high scores anytime).
           </p>
         </div>
 
@@ -23,7 +23,7 @@ export function HomePage() {
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Claim threshold</span>
-            <strong>500 pts / run</strong>
+            <strong>500 pts total</strong>
           </div>
           <div className="hero-stat">
             <span className="game-meta__label">Modes</span>
@@ -36,9 +36,10 @@ export function HomePage() {
         <span className="section-label">Game lobby</span>
         <h2 className="page-title">Choose your mission.</h2>
         <p className="page-copy">
-          Each run starts from zero — only your best single run of the day
-          counts for claims and the leaderboard. Expect a few attempts before
-          you clear 500; after you claim, keep grinding high scores.
+          Every run adds to your claim progress: today&apos;s run scores add up
+          per game, and 500 points in total unlocks a claim (each claim uses
+          500, any extra carries over). The leaderboard ranks your best single
+          run of the day.
         </p>
 
         <div className="games-grid">

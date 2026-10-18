@@ -2,7 +2,7 @@
 
 export const FALCON_FLIGHT_SLUG = 'falcon-flight'
 
-/** Score required to enable the Game Faucet claim for this game (best single run). */
+/** Score required to enable the Game Faucet claim for this game (sum of today's runs since the last claim). */
 export const FALCON_FLIGHT_REWARD_THRESHOLD = 500
 
 export const FALCON_COLORS = {

@@ -1,7 +1,7 @@
 /** Amendment Apocalypse — rogue-code arena shooter. */
 
 export const AMENDMENT_SLUG = 'amendment-apocalypse'
-/** Best single-run score required for Game Faucet claim. */
+/** Game Faucet claim threshold (sum of today's runs since the last claim). */
 export const AMENDMENT_REWARD_THRESHOLD = 500
 
 export const AA_COLORS = {
