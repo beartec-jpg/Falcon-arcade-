@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { GameStartButton } from '../../components/GameStartButton'
 import { usePhaserGame } from '../../hooks/usePhaserGame'
 import {
   AA,
@@ -29,7 +30,7 @@ export function AmendmentApocalypseGame({
     bridgeRef.current = { onScoreChange, onStateChange, onTierChange }
   }, [onScoreChange, onStateChange, onTierChange])
 
-  const containerRef = usePhaserGame(AmendmentApocalypseScene, {
+  const { containerRef, phase, requestStart } = usePhaserGame(AmendmentApocalypseScene, {
     width: AA.width,
     height: AA.height,
     backgroundColor: AA_COLORS.bgHex,
@@ -45,11 +46,14 @@ export function AmendmentApocalypseGame({
   })
 
   return (
-    <div
-      ref={containerRef}
-      className="phaser-game-host"
-      role="application"
-      aria-label="Amendment Apocalypse game canvas"
-    />
+    <div className="phaser-game-wrap" data-phase={phase ?? 'loading'}>
+      <div
+        ref={containerRef}
+        className="phaser-game-host"
+        role="application"
+        aria-label="Amendment Apocalypse game canvas"
+      />
+      <GameStartButton phase={phase} onStart={requestStart} />
+    </div>
   )
 }

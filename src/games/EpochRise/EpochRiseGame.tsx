@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { GameStartButton } from '../../components/GameStartButton'
 import { usePhaserGame } from '../../hooks/usePhaserGame'
 import {
   EPOCH_COLORS,
@@ -29,7 +30,7 @@ export function EpochRiseGame({
     bridgeRef.current = { onScoreChange, onStateChange, onEnergyChange }
   }, [onScoreChange, onStateChange, onEnergyChange])
 
-  const containerRef = usePhaserGame(EpochRiseScene, {
+  const { containerRef, phase, requestStart } = usePhaserGame(EpochRiseScene, {
     width: EPOCH_RISE.width,
     height: EPOCH_RISE.height,
     backgroundColor: EPOCH_COLORS.bgHex,
@@ -46,11 +47,14 @@ export function EpochRiseGame({
   })
 
   return (
-    <div
-      ref={containerRef}
-      className="phaser-game-host"
-      role="application"
-      aria-label="Epoch Rise game canvas"
-    />
+    <div className="phaser-game-wrap" data-phase={phase ?? 'loading'}>
+      <div
+        ref={containerRef}
+        className="phaser-game-host"
+        role="application"
+        aria-label="Epoch Rise game canvas"
+      />
+      <GameStartButton phase={phase} onStart={requestStart} />
+    </div>
   )
 }

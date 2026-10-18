@@ -1,8 +1,10 @@
 import Phaser from 'phaser'
+import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  type HowToOverlay,
   createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
@@ -85,6 +87,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private state: AmendmentGameState = 'ready'
   private paused = false
   private waitingHowTo = false
+  private howTo?: HowToOverlay
 
   private score = 0
   private bestScore = 0
@@ -206,6 +209,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     )
 
     this.setupInput()
+    bindStartRequests(this, () => this.requestStart())
     this.createHud(width, height)
     this.deathEmitter = createDeathEmitter(this)
     this.sparkEmitter = createSparkEmitter(this)
@@ -214,7 +218,8 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
 
     if (!hasSeenHowTo(AMENDMENT_SLUG)) {
       this.waitingHowTo = true
-      createHowToOverlay(
+      emitPhase(this, 'howto')
+      this.howTo = createHowToOverlay(
         this,
         'Amendment Apocalypse',
         [
@@ -773,17 +778,12 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     }
 
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.waitingHowTo || this.paused) return
-      if (this.state === 'ready') {
-        this.beginRun()
+      if (this.paused) return
+      // Not playing: any tap on the canvas starts / restarts (and dismisses how-to)
+      if (this.waitingHowTo || this.state !== 'playing') {
+        this.requestStart()
         return
       }
-      if (this.state === 'gameover') {
-        this.resetRun()
-        this.beginRun()
-        return
-      }
-      if (this.state !== 'playing') return
       // Ignore pause button corner
       if (p.y < 48 && p.x > this.scale.width - 56) return
 
@@ -939,17 +939,8 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     container.setData('body', body)
     container.setData('cta', cta)
     container.setSize(460, 230)
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(-230, -115, 460, 230),
-      Phaser.Geom.Rectangle.Contains,
-    )
-    container.on('pointerdown', () => {
-      if (this.state === 'ready') this.beginRun()
-      else if (this.state === 'gameover') {
-        this.resetRun()
-        this.beginRun()
-      }
-    })
+    // Start / restart taps are handled scene-wide (pointerdown anywhere →
+    // requestStart) and by the DOM start button, not by this panel's hitbox.
     this.overlay = container
   }
 
@@ -1827,7 +1818,28 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.getBridge()?.onScoreChange(score)
   }
 
+  /**
+   * Single entry point for start / restart from every input path: canvas
+   * pointerdown anywhere, the DOM start button, and keyboard. No focus needed.
+   */
+  requestStart() {
+    if (this.paused) return
+    if (this.waitingHowTo) {
+      // Dismiss synchronously (its callback shows 'ready'), then start.
+      this.howTo?.dismiss(true)
+      this.howTo = undefined
+      if (this.waitingHowTo) return
+    }
+    if (this.state === 'ready') {
+      this.beginRun()
+    } else if (this.state === 'gameover') {
+      this.resetRun()
+      this.beginRun()
+    }
+  }
+
   private emitState(state: AmendmentGameState) {
+    emitPhase(this, state)
     this.getBridge()?.onStateChange(state)
   }
 

@@ -1,10 +1,16 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Phaser from 'phaser'
 import type { PhaserSceneClass } from '../types/game'
 import {
   resolveLogicalSize,
   type AspectBucket,
 } from '../utils/gameSize'
+import {
+  PHASE_EVENT,
+  currentPhase,
+  requestGameStart,
+  type GamePhase,
+} from '../utils/startControl'
 
 export type UsePhaserGameConfig = {
   width?: number
@@ -28,6 +34,7 @@ export function usePhaserGame(
   const configRef = useRef(config)
   const bucketRef = useRef<AspectBucket | null>(null)
   configRef.current = config
+  const [phase, setPhase] = useState<GamePhase | null>(null)
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -83,6 +90,10 @@ export function usePhaserGame(
     gameRef.current = game
     configRef.current.onGameCreated?.(game)
 
+    const onPhase = (next: GamePhase) => setPhase(next)
+    game.events.on(PHASE_EVENT, onPhase)
+    setPhase(currentPhase(game))
+
     const refreshScale = () => {
       const g = gameRef.current
       if (!g || !containerRef.current) return
@@ -115,6 +126,7 @@ export function usePhaserGame(
     })
 
     return () => {
+      game.events.off(PHASE_EVENT, onPhase)
       ro?.disconnect()
       window.removeEventListener('resize', refreshScale)
       window.removeEventListener('orientationchange', refreshScale)
@@ -124,5 +136,9 @@ export function usePhaserGame(
     }
   }, [SceneClass])
 
-  return containerRef
+  const requestStart = useCallback(() => {
+    requestGameStart(gameRef.current)
+  }, [])
+
+  return { containerRef, phase, requestStart }
 }

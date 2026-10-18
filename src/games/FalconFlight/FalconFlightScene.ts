@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   animateFlightEmblem,
   createFlightEmblem,
@@ -10,6 +11,7 @@ import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
+  type HowToOverlay,
   createNebulaBackdrop,
   createParallaxStarfield,
   createPauseButton,
@@ -139,6 +141,7 @@ export class FalconFlightScene extends Phaser.Scene {
   private elapsedPlayMs = 0
   private streamScroll = 0
   private waitingHowTo = false
+  private howTo?: HowToOverlay
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
@@ -250,6 +253,7 @@ export class FalconFlightScene extends Phaser.Scene {
     this.touchUi.labelA.setText('TAP')
     this.touchUi.labelB.setText('TO FLY')
     this.setupInput()
+    bindStartRequests(this, () => this.requestStart())
     this.createHud(width, height)
     this.deathEmitter = createDeathEmitter(this)
     this.sparkEmitter = createSparkEmitter(this)
@@ -257,7 +261,8 @@ export class FalconFlightScene extends Phaser.Scene {
 
     if (!hasSeenHowTo(FALCON_FLIGHT_SLUG)) {
       this.waitingHowTo = true
-      createHowToOverlay(
+      emitPhase(this, 'howto')
+      this.howTo = createHowToOverlay(
         this,
         'Falcon Flight',
         [
@@ -560,17 +565,12 @@ export class FalconFlightScene extends Phaser.Scene {
     }
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (this.waitingHowTo || this.paused) return
-      if (this.state === 'ready') {
-        this.beginRun()
+      if (this.paused) return
+      // Not playing: any tap on the canvas starts / restarts (and dismisses how-to)
+      if (this.waitingHowTo || this.state !== 'playing') {
+        this.requestStart()
         return
       }
-      if (this.state === 'gameover') {
-        this.resetRun(true)
-        this.beginRun()
-        return
-      }
-      if (this.state !== 'playing') return
       // Ignore pause button corner
       if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
       this.fadeTouchZonesOnce()
@@ -724,17 +724,8 @@ export class FalconFlightScene extends Phaser.Scene {
     container.setData('body', body)
     container.setData('cta', cta)
     container.setSize(420, 210)
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(-210, -105, 420, 210),
-      Phaser.Geom.Rectangle.Contains,
-    )
-    container.on('pointerdown', () => {
-      if (this.state === 'ready') this.beginRun()
-      else if (this.state === 'gameover') {
-        this.resetRun(true)
-        this.beginRun()
-      }
-    })
+    // Start / restart taps are handled scene-wide (pointerdown anywhere →
+    // requestStart) and by the DOM start button, not by this panel's hitbox.
     this.overlay = container
   }
 
@@ -2209,7 +2200,28 @@ export class FalconFlightScene extends Phaser.Scene {
     this.getBridge()?.onScoreChange(score)
   }
 
+  /**
+   * Single entry point for start / restart from every input path: canvas
+   * pointerdown anywhere, the DOM start button, and keyboard. No focus needed.
+   */
+  requestStart() {
+    if (this.paused) return
+    if (this.waitingHowTo) {
+      // Dismiss synchronously (its callback shows 'ready'), then start.
+      this.howTo?.dismiss(true)
+      this.howTo = undefined
+      if (this.waitingHowTo) return
+    }
+    if (this.state === 'ready') {
+      this.beginRun()
+    } else if (this.state === 'gameover') {
+      this.resetRun(true)
+      this.beginRun()
+    }
+  }
+
   private emitState(state: FalconFlightGameState) {
+    emitPhase(this, state)
     this.getBridge()?.onStateChange(state)
   }
 }
