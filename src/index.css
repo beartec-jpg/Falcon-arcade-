@@ -1099,3 +1099,30 @@ body.play-focus-open .app-main {
   outline: 3px solid #f8fafc;
   outline-offset: 3px;
 }
+
+/* ── Visual overhaul: single score + desktop fit ─────────── */
+.play-chrome__spacer {
+  flex: 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Desktop: the whole canvas fits inside the viewport height (FIT keeps aspect). */
+@media (min-width: 900px) {
+  .page-panel:not(.page-panel--play-focus) .phaser-shell__frame,
+  .page-panel:not(.page-panel--play-focus) .phaser-game-wrap,
+  .page-panel:not(.page-panel--play-focus) .phaser-game-host {
+    min-height: 0;
+    height: min(calc(100dvh - 8.5rem), 820px);
+  }
+}

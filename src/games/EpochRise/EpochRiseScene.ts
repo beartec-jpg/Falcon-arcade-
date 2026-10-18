@@ -1,4 +1,7 @@
 import Phaser from 'phaser'
+import { applyHiDpi, cssFont } from '../../utils/hiDpi'
+import { layoutStatusPanel } from '../../utils/overlayLayout'
+import { ART, drawBadge, drawStripedSlab, warningStripes } from '../../utils/hazardArt'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   animateRiseEmblem,
@@ -7,7 +10,6 @@ import {
   type RiseEmblem,
 } from '../../utils/emblemCharacters'
 import {
-  attachQuantumPulse,
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
@@ -81,6 +83,7 @@ export class EpochRiseScene extends Phaser.Scene {
   private falconVisual!: Phaser.GameObjects.Container
   private riseEmblem!: RiseEmblem
   private entities!: Phaser.Physics.Arcade.Group
+  private pickups!: Phaser.Physics.Arcade.Group
 
   private shieldUntil = 0
   private boostZoneUntil = 0
@@ -137,6 +140,7 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   create() {
+    applyHiDpi(this)
     const { width, height } = this.scale
     this.cameras.main.setBackgroundColor(EPOCH_COLORS.bgHex)
     this.physics.world.gravity.y = 0
@@ -150,6 +154,11 @@ export class EpochRiseScene extends Phaser.Scene {
     this.createTextures()
 
     this.entities = this.physics.add.group({
+      allowGravity: false,
+      immovable: true,
+    })
+    // Friendly pickups get their own group (badges), hazards stay in `entities`
+    this.pickups = this.physics.add.group({
       allowGravity: false,
       immovable: true,
     })
@@ -168,6 +177,13 @@ export class EpochRiseScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.falcon,
       this.entities,
+      (_f, ent) => this.handleEntityOverlap(ent as Phaser.Physics.Arcade.Image),
+      undefined,
+      this,
+    )
+    this.physics.add.overlap(
+      this.falcon,
+      this.pickups,
       (_f, ent) => this.handleEntityOverlap(ent as Phaser.Physics.Arcade.Image),
       undefined,
       this,
@@ -318,64 +334,51 @@ export class EpochRiseScene extends Phaser.Scene {
     }
     if (!this.textures.exists('ledger-block')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: ledger slab — slate core, warning-striped ends, red edge
       const w = 72
       const h = 28
-      g.fillStyle(EPOCH_COLORS.ledgerFace, 1)
-      g.fillRoundedRect(0, 0, w, h, 5)
-      g.lineStyle(2, EPOCH_COLORS.danger, 0.85)
-      g.strokeRoundedRect(1, 1, w - 2, h - 2, 5)
-      g.lineStyle(1, EPOCH_COLORS.bronzeDark, 0.5)
-      g.lineBetween(10, 10, w - 10, 10)
-      g.lineBetween(10, 18, w - 10, 18)
+      drawStripedSlab(g, w, h, { band: 8 })
+      g.fillStyle(ART.slate, 1)
+      g.fillRect(14, 6, w - 28, h - 12)
+      g.lineStyle(2, ART.danger, 1)
+      g.strokeRect(1, 1, w - 2, h - 2)
       g.generateTexture('ledger-block', w, h)
       g.destroy()
     }
     if (!this.textures.exists('interference')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: interference field — red/orange static hatching (was cyan)
       const w = 100
       const h = 56
-      g.fillStyle(EPOCH_COLORS.quantumDim, 0.35)
-      g.fillRoundedRect(0, 0, w, h, 8)
-      g.lineStyle(2, EPOCH_COLORS.quantum, 0.7)
-      g.strokeRoundedRect(1, 1, w - 2, h - 2, 8)
-      g.lineStyle(1, EPOCH_COLORS.quantum, 0.4)
-      for (let i = -h; i < w + h; i += 10) {
-        g.lineBetween(i, 0, i + h, h)
-      }
+      warningStripes(g, 0, 0, w, h, 7, ART.danger, ART.dangerDeep)
+      g.fillStyle(ART.stripeDark, 0.35)
+      g.fillRect(0, 0, w, h)
+      g.lineStyle(3, ART.warn, 1)
+      g.strokeRect(1.5, 1.5, w - 3, h - 3)
       g.generateTexture('interference', w, h)
       g.destroy()
     }
     if (!this.textures.exists('orb')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      const s = 22
-      g.fillStyle(EPOCH_COLORS.quantum, 0.25)
-      g.fillCircle(s / 2, s / 2, s / 2)
-      g.fillStyle(EPOCH_COLORS.quantumHot, 0.9)
-      g.fillCircle(s / 2, s / 2, 6)
-      g.lineStyle(2, EPOCH_COLORS.bronzeBright, 0.8)
-      g.strokeCircle(s / 2, s / 2, s / 2 - 1)
+      // FRIENDLY: energy orb — gold badge with white diamond
+      const s = 34
+      drawBadge(g, s, 'diamond')
       g.generateTexture('orb', s, s)
       g.destroy()
     }
     if (!this.textures.exists('orb-cluster')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      const s = 28
-      g.fillStyle(EPOCH_COLORS.bronze, 0.3)
-      g.fillCircle(s / 2, s / 2, s / 2)
-      g.fillStyle(EPOCH_COLORS.bronzeBright, 0.95)
-      g.fillCircle(s / 2, s / 2, 7)
-      g.lineStyle(2, EPOCH_COLORS.quantumHot, 0.9)
-      g.strokeCircle(s / 2, s / 2, s / 2 - 1)
+      // FRIENDLY: high-value orb — green badge with white plus
+      const s = 38
+      drawBadge(g, s, 'plus', ART.green, ART.greenDeep)
       g.generateTexture('orb-cluster', s, s)
       g.destroy()
     }
     if (!this.textures.exists('shield-pickup')) {
       const g = this.make.graphics({ x: 0, y: 0 })
-      const s = 26
-      g.lineStyle(3, EPOCH_COLORS.shield, 0.95)
-      g.strokeCircle(s / 2, s / 2, s / 2 - 2)
-      g.fillStyle(EPOCH_COLORS.shield, 0.25)
-      g.fillCircle(s / 2, s / 2, 6)
+      // FRIENDLY: shield — green badge with white shield symbol
+      const s = 38
+      drawBadge(g, s, 'shield', ART.green, ART.greenDeep)
       g.generateTexture('shield-pickup', s, s)
       g.destroy()
     }
@@ -396,12 +399,22 @@ export class EpochRiseScene extends Phaser.Scene {
     }
     if (!this.textures.exists('mover')) {
       const g = this.make.graphics({ x: 0, y: 0 })
+      // DANGER: sliding blade — angular red/orange with stripes, pointed ends
       const w = 54
       const h = 22
-      g.fillStyle(EPOCH_COLORS.danger, 0.85)
-      g.fillRoundedRect(0, 0, w, h, 4)
-      g.lineStyle(2, EPOCH_COLORS.bronze, 0.9)
-      g.strokeRoundedRect(1, 1, w - 2, h - 2, 4)
+      const pts = [
+        { x: 0, y: h / 2 },
+        { x: 9, y: 1 },
+        { x: w - 9, y: 1 },
+        { x: w, y: h / 2 },
+        { x: w - 9, y: h - 1 },
+        { x: 9, y: h - 1 },
+      ]
+      g.fillStyle(ART.danger, 1)
+      g.fillPoints(pts, true)
+      warningStripes(g, 11, 5, w - 22, h - 10, 5)
+      g.lineStyle(2, ART.outline, 1)
+      g.strokePoints(pts, true, true)
       g.generateTexture('mover', w, h)
       g.destroy()
     }
@@ -451,7 +464,7 @@ export class EpochRiseScene extends Phaser.Scene {
         return
       }
       // Ignore pause button corner
-      if (pointer.y < 48 && pointer.x > this.scale.width - 56) return
+      if (pointer.worldY < 48 && pointer.worldX > this.scale.width - 56) return
 
       if (!this.zonesFaded) {
         this.zonesFaded = true
@@ -480,7 +493,7 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private createHud(width: number, height: number) {
     this.add
-      .rectangle(12, 12, 150, 52, 0x0f172a, 0.85)
+      .rectangle(12, 12, 150, 38, 0x0f172a, 0.85)
       .setOrigin(0, 0)
       .setStrokeStyle(1, EPOCH_COLORS.bronze, 0.4)
       .setDepth(40)
@@ -502,6 +515,8 @@ export class EpochRiseScene extends Phaser.Scene {
         fontStyle: '600',
       })
       .setDepth(41)
+      // Claim threshold lives in the sidebar meter — keep the HUD to one number
+      .setVisible(false)
 
     // Premium energy bar
     const barX = width / 2
@@ -546,15 +561,17 @@ export class EpochRiseScene extends Phaser.Scene {
     this.hudHint = this.add
       .text(
         width / 2,
-        height - 24,
+        height - 8,
         'WASD free move  ·  tap to fly  ·  SPACE dash  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: '12px',
+          fontSize: cssFont(this, 12, 14),
+          align: 'center',
+          wordWrap: { width: width - 40 },
           color: '#94a3b8',
         },
       )
-      .setOrigin(0.5)
+      .setOrigin(0.5, 1)
       .setDepth(40)
 
     createPauseButton(this, () => {
@@ -578,7 +595,7 @@ export class EpochRiseScene extends Phaser.Scene {
       .setVisible(false)
 
     this.newBestBanner = this.add
-      .text(width / 2, 72, 'NEW BEST!', {
+      .text(width / 2, 92, 'NEW BEST!', {
         fontFamily: 'Inter, system-ui, sans-serif',
         fontSize: '22px',
         color: '#d4922a',
@@ -673,6 +690,7 @@ export class EpochRiseScene extends Phaser.Scene {
       )
       cta.setText('TAP / SPACE TO RESTART')
     }
+    layoutStatusPanel(this, this.overlay)
     this.overlay.setVisible(true)
     this.hudHint.setText(
       mode === 'ready'
@@ -709,6 +727,7 @@ export class EpochRiseScene extends Phaser.Scene {
     stopTrail(this.trail)
 
     this.entities.clear(true, true)
+    this.pickups.clear(true, true)
     this.touchTarget = null
     this.touchHeld = false
     this.falcon.setPosition(this.scale.width / 2, this.defaultPlayerY())
@@ -1076,15 +1095,29 @@ export class EpochRiseScene extends Phaser.Scene {
       this.time.now + interval * Phaser.Math.FloatBetween(0.85, 1.12)
   }
 
-  private spawnAtTop(texture: string, w: number, h: number, meta: EntityMeta) {
+  private spawnAtTop(
+    texture: string,
+    w: number,
+    h: number,
+    meta: EntityMeta,
+    pickup?: { visual: number },
+  ) {
     const pad = 60
     const x = Phaser.Math.Between(pad, this.scale.width - pad)
     const y = -40
-    const obj = this.entities.create(x, y, texture) as Phaser.Physics.Arcade.Image
-    obj.setDisplaySize(w, h)
+    const group = pickup ? this.pickups : this.entities
+    const obj = group.create(x, y, texture) as Phaser.Physics.Arcade.Image
+    // Pickup badges draw bigger than their hitbox; the hitbox keeps the old size.
+    if (pickup) obj.setDisplaySize(pickup.visual, pickup.visual)
+    else obj.setDisplaySize(w, h)
     obj.refreshBody()
     const body = obj.body as Phaser.Physics.Arcade.Body
-    body.setSize(w * 0.88, h * 0.88)
+    if (pickup) {
+      const k = obj.scaleX || 1
+      body.setSize((w * 0.88) / k, (h * 0.88) / k, true)
+    } else {
+      body.setSize(w * 0.88, h * 0.88)
+    }
     obj.setImmovable(true)
     obj.setDepth(8)
     obj.setData('meta', meta)
@@ -1098,8 +1131,7 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private spawnInterference() {
     const w = Phaser.Math.Between(90, 160)
-    const obj = this.spawnAtTop('interference', w, 52, { kind: 'interference' })
-    attachQuantumPulse(this, obj)
+    this.spawnAtTop('interference', w, 52, { kind: 'interference' })
   }
 
   private spawnMover() {
@@ -1114,23 +1146,31 @@ export class EpochRiseScene extends Phaser.Scene {
   private spawnOrb(cluster: boolean) {
     const key = cluster ? 'orb-cluster' : 'orb'
     const size = cluster ? 28 : 22
-    this.spawnAtTop(key, size, size, {
-      kind: cluster ? 'cluster-orb' : 'orb',
-      scored: false,
-    })
+    this.spawnAtTop(
+      key,
+      size,
+      size,
+      {
+        kind: cluster ? 'cluster-orb' : 'orb',
+        scored: false,
+      },
+      { visual: cluster ? 38 : 34 },
+    )
   }
 
   private spawnOrbCluster() {
     // Risky pack: several high-value orbs near a ledger
     const cx = Phaser.Math.Between(120, this.scale.width - 120)
     for (let i = 0; i < 3; i += 1) {
-      const obj = this.entities.create(
-        cx + (i - 1) * 34,
+      const obj = this.pickups.create(
+        cx + (i - 1) * 40,
         -50 - i * 12,
         'orb-cluster',
       ) as Phaser.Physics.Arcade.Image
-      obj.setDisplaySize(26, 26)
+      obj.setDisplaySize(36, 36)
       obj.refreshBody()
+      // keep the original 26px pickup hitbox
+      ;(obj.body as Phaser.Physics.Arcade.Body).setSize(26 / obj.scaleX, 26 / obj.scaleY, true)
       obj.setImmovable(true)
       obj.setDepth(8)
       obj.setData('meta', {
@@ -1148,16 +1188,24 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   private spawnShield() {
-    this.spawnAtTop('shield-pickup', 26, 26, { kind: 'shield', scored: false })
+    this.spawnAtTop('shield-pickup', 26, 26, { kind: 'shield', scored: false }, { visual: 38 })
   }
 
   private spawnBoostZone() {
     this.spawnAtTop('boost-zone', 90, 70, { kind: 'boost-zone', scored: false })
   }
 
+  /** Hazards + pickups — everything that scrolls with the world. */
+  private worldObjects(): Phaser.Physics.Arcade.Image[] {
+    return [
+      ...this.entities.getChildren(),
+      ...(this.pickups?.getChildren() ?? []),
+    ] as Phaser.Physics.Arcade.Image[]
+  }
+
   private updateEntities(delta: number) {
     const dy = this.riseSpeed * (delta / 1000)
-    const children = this.entities.getChildren() as Phaser.Physics.Arcade.Image[]
+    const children = this.worldObjects()
 
     for (const ent of children) {
       ent.y += dy
@@ -1171,8 +1219,11 @@ export class EpochRiseScene extends Phaser.Scene {
 
       // Continuous interference drain while overlapping — handled in overlap
       // Pulse orbs
-      if (meta?.kind === 'orb' || meta?.kind === 'cluster-orb') {
-        ent.setScale(1 + Math.sin(this.time.now / 200 + ent.x) * 0.06)
+      if (meta?.kind === 'orb' || meta?.kind === 'cluster-orb' || meta?.kind === 'shield') {
+        // Friendly pulse (badge art is scaled to its visual size)
+        const base = (ent.getData('baseScale') as number | undefined) ?? ent.scaleX
+        if (ent.getData('baseScale') === undefined) ent.setData('baseScale', base)
+        ent.setScale(base * (1 + Math.sin(this.time.now / 200 + ent.x) * 0.08))
       }
 
       const body = ent.body as Phaser.Physics.Arcade.Body | null
@@ -1181,7 +1232,7 @@ export class EpochRiseScene extends Phaser.Scene {
   }
 
   private cullEntities() {
-    const children = this.entities.getChildren() as Phaser.Physics.Arcade.Image[]
+    const children = this.worldObjects()
     for (const ent of children) {
       if (ent.y > this.scale.height + 80) {
         ent.destroy()

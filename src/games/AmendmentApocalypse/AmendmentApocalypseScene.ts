@@ -1,4 +1,6 @@
 import Phaser from 'phaser'
+import { applyHiDpi, cssFont } from '../../utils/hiDpi'
+import { layoutStatusPanel } from '../../utils/overlayLayout'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   createDataStream,
@@ -83,7 +85,12 @@ type ShipVisual = {
  * Amendment Apocalypse — free-roam arena shooter.
  * Defend the ledger; collect Amendments to escalate firepower.
  */
+/** Portrait/mobile entity scale for Shoot. */
+const AA_MOBILE_ENTITY_SCALE = 1.3
+
 export class AmendmentApocalypseScene extends Phaser.Scene {
+  /** Entity scale multiplier (1.3 on portrait/mobile). */
+  private mobileScale = 1
   private state: AmendmentGameState = 'ready'
   private paused = false
   private waitingHowTo = false
@@ -155,6 +162,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   }
 
   create() {
+    applyHiDpi(this)
     const { width, height } = this.scale
     this.cameras.main.setBackgroundColor(AA_COLORS.bgHex)
     this.physics.world.setBounds(24, 24, width - 48, height - 48)
@@ -174,7 +182,9 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.shipEmblem = this.createShipVisual(width / 2, height / 2)
     this.shipVisual = this.shipEmblem.root
     // Slightly smaller craft so the arena reads zoomed-out / roomier
-    this.shipVisual.setScale(0.9)
+    // Portrait / phone: entities ×1.3 so bugs, pickups and bullets stay readable
+    this.mobileScale = height > width ? AA_MOBILE_ENTITY_SCALE : 1
+    this.shipVisual.setScale(0.9 * this.mobileScale)
     this.ship = this.physics.add.image(width / 2, height / 2, 'ship-hit')
     this.ship.setVisible(false)
     this.ship.setCircle(11)
@@ -785,7 +795,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
         return
       }
       // Ignore pause button corner
-      if (p.y < 48 && p.x > this.scale.width - 56) return
+      if (p.worldY < 48 && p.worldX > this.scale.width - 56) return
 
       this.touchHeld = true
       // Set destination — ship keeps auto-driving here after finger lifts
@@ -843,15 +853,17 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.hudHint = this.add
       .text(
         width / 2,
-        height - 22,
+        height - 8,
         'Tap to fly  ·  shoot red bugs  ·  green+ scroll / gold ★  ·  WASD  ·  P pause',
         {
           fontFamily: 'Inter, system-ui, sans-serif',
-          fontSize: '12px',
+          fontSize: cssFont(this, 12, 14),
+          align: 'center',
+          wordWrap: { width: width - 40 },
           color: '#94a3b8',
         },
       )
-      .setOrigin(0.5)
+      .setOrigin(0.5, 1)
       .setDepth(40)
 
     createPauseButton(this, () => {
@@ -962,6 +974,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       )
       cta.setText('TAP / SPACE TO RESTART')
     }
+    layoutStatusPanel(this, this.overlay)
     this.overlay.setVisible(true)
   }
 
@@ -1261,6 +1274,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       const key = homing ? 'bullet-home' : 'bullet'
       const b = this.bullets.create(px, py, key) as Phaser.Physics.Arcade.Image
       b.setDepth(9)
+      b.setScale(this.mobileScale)
       b.setAngle(Phaser.Math.RadToDeg(ang))
       const body = b.body as Phaser.Physics.Arcade.Body
       body.setAllowGravity(false)
@@ -1440,8 +1454,10 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     const body = bug.body as Phaser.Physics.Arcade.Body
     body.setAllowGravity(false)
     // Corrupt is larger on field
-    if (kind === 'corrupt') bug.setScale(1.05)
-    else if (kind === 'race') bug.setScale(1.1)
+    const m = this.mobileScale
+    if (kind === 'corrupt') bug.setScale(1.05 * m)
+    else if (kind === 'race') bug.setScale(1.1 * m)
+    else bug.setScale(m)
 
     const meta: BugMeta = {
       kind,
@@ -1676,10 +1692,11 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     body.setAllowGravity(false)
     body.setVelocity(Phaser.Math.Between(-16, 16), Phaser.Math.Between(-16, 16))
     // Larger friendly hit-target + bounce pulse
-    p.setScale(1.15)
+    const m = this.mobileScale
+    p.setScale(1.15 * m)
     this.tweens.add({
       targets: p,
-      scale: { from: 1.05, to: 1.28 },
+      scale: { from: 1.05 * m, to: 1.28 * m },
       duration: 420,
       yoyo: true,
       repeat: -1,

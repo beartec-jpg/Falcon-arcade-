@@ -6,6 +6,11 @@ import {
   type AspectBucket,
 } from '../utils/gameSize'
 import {
+  computeRenderScale,
+  patchTextResolution,
+  setRenderScale,
+} from '../utils/hiDpi'
+import {
   PHASE_EVENT,
   currentPhase,
   requestGameStart,
@@ -33,6 +38,7 @@ export function usePhaserGame(
   const gameRef = useRef<Phaser.Game | null>(null)
   const configRef = useRef(config)
   const bucketRef = useRef<AspectBucket | null>(null)
+  const renderScaleRef = useRef(1)
   configRef.current = config
   const [phase, setPhase] = useState<GamePhase | null>(null)
 
@@ -63,11 +69,15 @@ export function usePhaserGame(
           bucket: 'landscape' as AspectBucket,
         }
     bucketRef.current = initial.bucket
+    // DPR-correct backing store (cap 2): canvas = logical × r, scenes zoom by r
+    const renderScale = computeRenderScale()
+    renderScaleRef.current = renderScale
+    patchTextResolution()
 
     const game = new Phaser.Game({
       type: Phaser.AUTO,
-      width: initial.size.width,
-      height: initial.size.height,
+      width: Math.round(initial.size.width * renderScale),
+      height: Math.round(initial.size.height * renderScale),
       parent,
       backgroundColor,
       scale: {
@@ -85,6 +95,9 @@ export function usePhaserGame(
           }
         : undefined,
       scene: SceneClass,
+      callbacks: {
+        preBoot: (g) => setRenderScale(g, renderScale),
+      },
     })
 
     gameRef.current = game
@@ -102,7 +115,11 @@ export function usePhaserGame(
           const next = resolveLogicalSize(containerRef.current)
           if (next.bucket !== bucketRef.current) {
             bucketRef.current = next.bucket
-            g.scale.setGameSize(next.size.width, next.size.height)
+            const r = renderScaleRef.current
+            g.scale.setGameSize(
+              Math.round(next.size.width * r),
+              Math.round(next.size.height * r),
+            )
           }
         }
         g.scale.refresh()
