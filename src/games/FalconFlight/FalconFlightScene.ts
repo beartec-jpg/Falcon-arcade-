@@ -6,6 +6,7 @@ import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
   animateFalconSprite,
   createFalconSprite,
+  falconMobileScale,
   type FalconMood,
   type FalconSprite,
 } from '../../utils/falconSprite'
@@ -225,6 +226,7 @@ export class FalconFlightScene extends Phaser.Scene {
       FALCON_FLIGHT.playerX,
       height / 2,
       11,
+      { scale: falconMobileScale(this) },
     )
     this.falconVisual = this.flightEmblem.root
     this.falcon = this.physics.add.image(

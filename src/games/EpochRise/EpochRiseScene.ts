@@ -4,11 +4,13 @@ import { layoutStatusPanel } from '../../utils/overlayLayout'
 import { ART, drawBadge, drawStripedSlab, warningStripes } from '../../utils/hazardArt'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
-  animateRiseEmblem,
-  createRiseEmblem,
-  type CharacterMood,
-  type RiseEmblem,
-} from '../../utils/emblemCharacters'
+  animateFalconSprite,
+  createFalconSprite,
+  falconMobileScale,
+  FALCON_SPRITE,
+  type FalconMood,
+  type FalconSprite,
+} from '../../utils/falconSprite'
 import {
   createDataStream,
   createDeathEmitter,
@@ -64,6 +66,12 @@ type EntityMeta = {
  * Epoch Rise — vertical energy run.
  * Falcon starts at the bottom; free 2D flight while the world scrolls past.
  */
+/** Rise falcon art scale vs Flight (hitbox r=16 vs 11). */
+const RISE_FALCON_SCALE = 1.45
+/** Nose-up pitch (deg) so the side-view falcon reads as climbing. */
+const RISE_CLIMB_PITCH = 35
+const FALCON_ORIGIN_X = FALCON_SPRITE.cx / FALCON_SPRITE.boxW
+
 export class EpochRiseScene extends Phaser.Scene {
   private state: EpochRiseGameState = 'ready'
   private paused = false
@@ -81,7 +89,7 @@ export class EpochRiseScene extends Phaser.Scene {
 
   private falcon!: Phaser.Physics.Arcade.Image
   private falconVisual!: Phaser.GameObjects.Container
-  private riseEmblem!: RiseEmblem
+  private riseEmblem!: FalconSprite
   private entities!: Phaser.Physics.Arcade.Group
   private pickups!: Phaser.Physics.Arcade.Group
 
@@ -164,8 +172,14 @@ export class EpochRiseScene extends Phaser.Scene {
     })
 
     const startY = this.defaultPlayerY()
-    this.trail = createPlayerTrail(this, 9)
-    this.riseEmblem = createRiseEmblem(this, width / 2, startY, 13)
+    this.trail = createPlayerTrail(this, 9, 'subtle')
+    // Same clean falcon as Flight in side view, pitched nose-up into a climb
+    // (art rotated on the inner image; container angle = bank tilt).
+    // Visual ~1.45× Flight's art to match Rise's larger r=16 hitbox; +20% on phones.
+    this.riseEmblem = createFalconSprite(this, width / 2, startY, 13, {
+      scale: RISE_FALCON_SCALE * falconMobileScale(this),
+      baseAngle: -RISE_CLIMB_PITCH,
+    })
     this.falconVisual = this.riseEmblem.root
     this.falcon = this.physics.add.image(width / 2, startY, 'falcon-hitbox')
     this.falcon.setVisible(false)
@@ -622,7 +636,7 @@ export class EpochRiseScene extends Phaser.Scene {
       this.physics.pause()
     } else {
       this.physics.resume()
-      startTrail(this.trail, this.falcon)
+      startTrail(this.trail, this.falcon, 0, 26)
     }
   }
 
@@ -734,6 +748,7 @@ export class EpochRiseScene extends Phaser.Scene {
     this.falcon.setVelocity(0, 0)
     this.falconVisual.setAlpha(1)
     this.falconVisual.setAngle(0)
+    this.setRiseFacing(1)
     this.hudScore.setText('SCORE  0')
     this.hudScore.setColor('#f1f5f9')
     this.refreshEnergyBar()
@@ -753,7 +768,7 @@ export class EpochRiseScene extends Phaser.Scene {
     this.touchHeld = false
     this.nextSpawnAt = this.time.now + 600
     this.hudHint.setText('Tap to fly · up for speed grabs · drop back for far orbs')
-    startTrail(this.trail, this.falcon)
+    startTrail(this.trail, this.falcon, 0, 26)
     this.emitState('playing')
   }
 
@@ -906,40 +921,57 @@ export class EpochRiseScene extends Phaser.Scene {
     this.falconVisual.y = this.falcon.y
   }
 
+  private riseFacing: 1 | -1 = 1
+
+  private setRiseFacing(dir: 1 | -1) {
+    this.riseFacing = dir
+    const img = this.riseEmblem.image
+    img.setFlipX(dir < 0)
+    // Mirror the art origin so the body stays centred on the hitbox
+    img.setOrigin(dir < 0 ? 1 - FALCON_ORIGIN_X : FALCON_ORIGIN_X, img.originY)
+    img.setAngle(dir < 0 ? RISE_CLIMB_PITCH : -RISE_CLIMB_PITCH)
+  }
+
   private updateFalconVisual(delta: number) {
     if (!this.falconVisual || !this.falcon || !this.riseEmblem) return
     this.falconVisual.x = this.falcon.x
     this.falconVisual.y = this.falcon.y
 
-    this.wingFlap += delta * (this.state === 'playing' ? 1.45 : 0.75)
     const vx = this.falcon.body?.velocity.x ?? 0
     const vy = this.falcon.body?.velocity.y ?? 0
-    const bank =
-      this.state === 'playing' ? Phaser.Math.Clamp(vx / 16, -24, 24) : 0
-
-    let mood: CharacterMood = 'idle'
+    const playing = this.state === 'playing'
+    let mood: FalconMood = 'idle'
     if (this.state === 'gameover') mood = 'dead'
-    else if (this.state === 'playing') {
-      if (this.time.now < this.shieldUntil) mood = 'shield'
-      else if (
-        this.time.now < this.boostZoneUntil ||
-        this.time.now < this.dashUntil
-      ) {
-        mood = 'boost'
-      } else if (this.energy < EPOCH_RISE.maxEnergy * 0.28) mood = 'danger'
-      else mood = 'play'
+    else if (playing) {
+      mood =
+        this.time.now < this.boostZoneUntil || this.time.now < this.dashUntil
+          ? 'boost'
+          : 'play'
     }
-
-    animateRiseEmblem(this.riseEmblem, delta, this.wingFlap, mood, bank, {
-      vx,
-      vy,
-      energyRatio: this.energy / EPOCH_RISE.maxEnergy,
-      speedFactor:
-        this.state === 'playing'
-          ? this.riseSpeed / EPOCH_RISE.baseRiseSpeed
-          : 0.85,
-    })
+    // Wingbeat tied to rising: faster when climbing, fastest on dash / boost
+    const climbing = playing && vy < -40
+    const flapRate = mood === 'boost' ? 1.7 : climbing ? 1.35 : 1
+    // Bank (tilt) into sideways motion, ±18° time-based (shared falcon logic)
+    animateFalconSprite(
+      this.riseEmblem,
+      delta,
+      mood,
+      playing ? vx : 0,
+      EPOCH_RISE.moveSpeed,
+      flapRate,
+      { allowTuck: false },
+    )
+    // Face the direction of travel (hysteresis so it doesn't flicker)
+    if (playing && vx > 60 && this.riseFacing < 0) this.setRiseFacing(1)
+    else if (playing && vx < -60 && this.riseFacing > 0) this.setRiseFacing(-1)
+    // Shield / low-energy read on the bird without old-style auras
+    const img = this.riseEmblem.image
+    if (playing && this.time.now < this.shieldUntil) img.setTint(0xd9f99d)
+    else if (playing && this.energy < EPOCH_RISE.maxEnergy * 0.28) {
+      img.setTint(Math.floor(this.time.now / 220) % 2 ? 0xfecaca : 0xffffff)
+    } else img.clearTint()
   }
+
 
   // ── energy & score ─────────────────────────────────────
 

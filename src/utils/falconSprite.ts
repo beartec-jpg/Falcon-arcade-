@@ -181,18 +181,38 @@ export type FalconSprite = {
   frame: number
 }
 
+export type FalconSpriteOptions = {
+  /** Visual size multiplier on top of FALCON_SPRITE.displayScale (hitbox untouched). */
+  scale?: number
+  /**
+   * Fixed art rotation in degrees, applied to the inner image so the
+   * container angle stays a pure tilt (e.g. -90 = falcon faces up for Rise).
+   */
+  baseAngle?: number
+}
+
+/** Visual-only upsize on portrait / phone canvases (hitboxes never change). */
+export const FALCON_MOBILE_VISUAL_SCALE = 1.2
+
+export function falconMobileScale(scene: Phaser.Scene): number {
+  const { width, height } = scene.scale
+  return height > width ? FALCON_MOBILE_VISUAL_SCALE : 1
+}
+
 export function createFalconSprite(
   scene: Phaser.Scene,
   x: number,
   y: number,
   depth = 11,
+  opts: FalconSpriteOptions = {},
 ): FalconSprite {
   ensureFalconTextures(scene)
   const S = FALCON_SPRITE
   const image = scene.add.image(0, 0, FALCON_FRAME_KEYS[1])
   // Body centre of the art sits on the container origin (= hitbox centre)
   image.setOrigin(S.cx / S.boxW, S.cy / S.boxH)
-  image.setScale(S.displayScale / S.bake)
+  image.setScale((S.displayScale * (opts.scale ?? 1)) / S.bake)
+  image.setAngle(opts.baseAngle ?? 0)
   const root = scene.add.container(x, y, [image]).setDepth(depth)
   return { root, image, flapClock: 0, frame: 1 }
 }
@@ -203,7 +223,8 @@ const FLAP_SEQUENCE = [0, 1, 2, 1] as const
 export type FalconMood = 'idle' | 'play' | 'boost' | 'dead'
 
 /**
- * Per-frame update. `vy` / `maxVy` drive the tilt; tilt is clamped to
+ * Per-frame update. `vy` / `maxVy` drive the tilt (Rise passes horizontal
+ * velocity here so the up-facing bird banks into its sideways motion); tilt is clamped to
  * ±maxTilt and eased with a time-based exponential (no per-frame lerp).
  * In 'dead' mode the angle is left alone (scene runs a death tween).
  */
@@ -214,12 +235,13 @@ export function animateFalconSprite(
   vy = 0,
   maxVy = 1,
   flapRate = 1,
+  opts: { allowTuck?: boolean } = {},
 ) {
   const S = FALCON_SPRITE
   const dt = Math.min(deltaMs, 100)
   if (mood !== 'dead') {
     // Flap: ~9 wingbeats/sec cycle-steps in play, slower idle; tuck in a hard dive
-    const diving = mood !== 'idle' && vy > maxVy * 0.6
+    const diving = (opts.allowTuck ?? true) && mood !== 'idle' && vy > maxVy * 0.6
     const stepsPerSec = mood === 'idle' ? 6 : diving ? 5 : 10 * flapRate
     f.flapClock += (dt / 1000) * stepsPerSec
     const step = Math.floor(f.flapClock) % FLAP_SEQUENCE.length
