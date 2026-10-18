@@ -3,6 +3,24 @@ import { applyHiDpi, cssFont } from '../../utils/hiDpi'
 import { layoutStatusPanel } from '../../utils/overlayLayout'
 import { bindStartRequests, emitPhase } from '../../utils/startControl'
 import {
+  animateShipSprite,
+  createShipSprite,
+  setShipTier,
+  type ShipSprite,
+} from '../../utils/shipSprite'
+import {
+  TOP_MODE,
+  comboCap,
+  eliteHp,
+  killScoreMult,
+  enemyFireInterval,
+  hpBonus,
+  overdriveHeat,
+  spawnIntervalFactor,
+  speedFactor,
+  stepOverdrive,
+} from './topMode'
+import {
   createDataStream,
   createDeathEmitter,
   createHowToOverlay,
@@ -48,38 +66,16 @@ type BugMeta = {
   angle?: number
   orbitR?: number
   orbitSpeed?: number
+  /** Overdrive: elite mini-boss */
+  elite?: boolean
+  /** Overdrive: next time this enemy may shoot */
+  nextShotAt?: number
 }
 
 type PickupKind = 'amendment' | 'hardfork'
 
-/** Premium quantum defender — evolves visibly with weapon tier. */
-type ShipVisual = {
-  root: Phaser.GameObjects.Container
-  tier: number
-  // Auras
-  glow: Phaser.GameObjects.Arc
-  ring: Phaser.GameObjects.Arc
-  shieldRing: Phaser.GameObjects.Arc
-  // Thruster (rear = local -X, ship faces +X)
-  thrusterHalo: Phaser.GameObjects.Arc
-  thrusterPlume: Phaser.GameObjects.Triangle
-  thrusterPlumeCore: Phaser.GameObjects.Triangle
-  thrusterHousing: Phaser.GameObjects.Rectangle
-  thrusterCore: Phaser.GameObjects.Rectangle
-  thrusterSideT?: Phaser.GameObjects.Triangle
-  thrusterSideB?: Phaser.GameObjects.Triangle
-  // Wings (flex on turn)
-  wingTGroup: Phaser.GameObjects.Container
-  wingBGroup: Phaser.GameObjects.Container
-  // Cockpit
-  cockpit: Phaser.GameObjects.Arc
-  cockpitGlow: Phaser.GameObjects.Arc
-  eyeGlint: Phaser.GameObjects.Arc
-  visor: Phaser.GameObjects.Rectangle
-  // Energy accents (pulse with tier)
-  energyLines: Phaser.GameObjects.Rectangle[]
-  energyNodes: Phaser.GameObjects.Arc[]
-}
+/** Player ship visual — see utils/shipSprite. */
+type ShipVisual = ShipSprite
 
 /**
  * Amendment Apocalypse — free-roam arena shooter.
@@ -113,11 +109,18 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
   private streamScroll = 0
   /** Kills since last Amendment drop (pity timer for upgrades). */
   private killsSincePickup = 0
+  /** Overdrive (max-tier) clock + heat; 0 below max tier. */
+  private overdriveMs = 0
+  private overdriveHeat = 0
+  private overdriveOn = false
+  private maxTierHeldMs = 0
+  private nextEliteAt = 0
+  private enemyShots!: Phaser.Physics.Arcade.Group
+  private overdriveFrame!: Phaser.GameObjects.Rectangle
 
   private ship!: Phaser.Physics.Arcade.Image
   private shipVisual!: Phaser.GameObjects.Container
   private shipEmblem!: ShipVisual
-  private shipAnimT = 0
   private lastShipAngle = 0
 
   private bullets!: Phaser.Physics.Arcade.Group
@@ -177,6 +180,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.bullets = this.physics.add.group({ allowGravity: false })
     this.bugs = this.physics.add.group({ allowGravity: false })
     this.pickups = this.physics.add.group({ allowGravity: false })
+    this.enemyShots = this.physics.add.group({ allowGravity: false })
 
     this.trail = createPlayerTrail(this, 8)
     this.shipEmblem = this.createShipVisual(width / 2, height / 2)
@@ -207,6 +211,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       this.ship,
       this.bugs,
       (_s, e) => this.onShipHitBug(e as Phaser.Physics.Arcade.Image),
+      undefined,
+      this,
+    )
+    this.physics.add.overlap(
+      this.ship,
+      this.enemyShots,
+      (_s, b) => this.onShipHitShot(b as Phaser.Physics.Arcade.Image),
       undefined,
       this,
     )
@@ -314,9 +325,11 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     )
 
     this.applyThrust(delta)
+    this.updateOverdrive(delta)
     this.autoFire()
     this.spawnBugsIfNeeded()
     this.updateBugs(delta)
+    this.updateEnemyFire()
     this.updateBullets(delta)
     this.cullOffscreen()
     this.tickSurvivalScore(delta)
@@ -340,6 +353,18 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       g.fillStyle(AA_COLORS.quantumHot, 0.9)
       g.fillCircle(8, 2, 2)
       g.generateTexture('bullet', 10, 4)
+      g.destroy()
+    }
+    if (!this.textures.exists('enemy-shot')) {
+      // Hostile shot: red core, dark rim — reads unlike gold pickups / cyan bullets
+      const g = this.add.graphics()
+      g.fillStyle(0x7f1d1d, 1)
+      g.fillCircle(6, 6, 6)
+      g.fillStyle(0xf87171, 1)
+      g.fillCircle(6, 6, 4)
+      g.fillStyle(0xfee2e2, 1)
+      g.fillCircle(6, 6, 1.6)
+      g.generateTexture('enemy-shot', 12, 12)
       g.destroy()
     }
     if (!this.textures.exists('bullet-home')) {
@@ -529,245 +554,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     g.destroy()
   }
 
-  /**
-   * Premium quantum defender. Faces +X locally; scene rotates the root
-   * toward travel. Rebuilds geometry when weapon tier changes.
-   */
+  /** Clean falcon fighter (pre-baked tier × bank frames). */
   private createShipVisual(x: number, y: number): ShipVisual {
-    const root = this.add.container(x, y).setDepth(11)
-    const emblem = {
-      root,
-      tier: 0,
-    } as ShipVisual
-    this.applyShipTier(emblem, 1)
-    return emblem
+    return createShipSprite(this, x, y, 11)
   }
 
-  /** Progressive visual evolution for tiers 1–6. */
   private applyShipTier(e: ShipVisual, tier: number) {
-    const t = Phaser.Math.Clamp(Math.floor(tier), 1, AA.maxWeaponTier)
-    if (e.tier === t && e.root.list.length > 0) return
-    e.tier = t
-    e.root.removeAll(true)
-    e.energyLines = []
-    e.energyNodes = []
-
-    const bronze = AA_COLORS.bronze
-    const bright = AA_COLORS.bronzeBright
-    const dark = AA_COLORS.bronzeDark
-    const quantum = AA_COLORS.quantum
-    const quantumHot = AA_COLORS.quantumHot
-    const hardFork = AA_COLORS.hardFork
-    const ink = 0x020617
-
-    // ── Auras ────────────────────────────────────────────
-    const ringR = 26 + t * 2.2
-    const glowR = 20 + t * 1.6
-    e.ring = this.add.circle(0, 0, ringR, bright, 0.04 + t * 0.012)
-    e.ring.setStrokeStyle(1.2, hardFork, 0.15 + t * 0.04)
-    e.glow = this.add.circle(0, 0, glowR, bronze, 0.14 + t * 0.02)
-
-    // ── Thruster (rear / local −X) ────────────────────────
-    e.thrusterHalo = this.add.circle(-16, 0, 9 + t * 0.8, quantum, 0.18)
-    e.thrusterPlume = this.add.triangle(
-      -22,
-      0,
-      6,
-      -7 - t,
-      6,
-      7 + t,
-      -14 - t * 1.5,
-      0,
-      quantum,
-      0.5,
-    )
-    e.thrusterPlumeCore = this.add.triangle(
-      -20,
-      0,
-      4,
-      -3.5,
-      4,
-      3.5,
-      -11 - t,
-      0,
-      quantumHot,
-      0.85,
-    )
-    e.thrusterHousing = this.add.rectangle(-12, 0, 8, 11 + t, dark)
-    e.thrusterHousing.setStrokeStyle(1, bronze, 0.65)
-    e.thrusterCore = this.add.rectangle(-13, 0, 4, 6 + t * 0.4, quantumHot, 0.95)
-    const thrusterRim = this.add.rectangle(-9, 0, 2.5, 13 + t, bright, 0.9)
-
-    if (t >= 5) {
-      e.thrusterSideT = this.add.triangle(
-        -14,
-        -8,
-        3,
-        -3,
-        3,
-        3,
-        -9,
-        0,
-        quantum,
-        0.55,
-      )
-      e.thrusterSideB = this.add.triangle(
-        -14,
-        8,
-        3,
-        -3,
-        3,
-        3,
-        -9,
-        0,
-        quantum,
-        0.55,
-      )
-    }
-
-    // ── Wing groups (flex on turn) ───────────────────────
-    e.wingTGroup = this.add.container(-2, -4)
-    e.wingBGroup = this.add.container(-2, 4)
-
-    // Tier 1: stub fins only
-    if (t >= 1) {
-      const stubT = this.add.triangle(0, 0, -4, 2, 6, 1, -2, -6, dark, 0.9)
-      const stubB = this.add.triangle(0, 0, -4, -2, 6, -1, -2, 6, dark, 0.9)
-      e.wingTGroup.add(stubT)
-      e.wingBGroup.add(stubB)
-    }
-    // Tier 2: extended fins
-    if (t >= 2) {
-      const finT = this.add.triangle(-2, -2, 6, 3, -6, 3, 0, -11, dark)
-      const finB = this.add.triangle(-2, 2, 6, -3, -6, -3, 0, 11, dark)
-      const finEdgeT = this.add.triangle(-1, -4, 3, 1, -3, 1, 0, -8, hardFork, 0.45)
-      const finEdgeB = this.add.triangle(-1, 4, 3, -1, -3, -1, 0, 8, hardFork, 0.4)
-      e.wingTGroup.add([finT, finEdgeT])
-      e.wingBGroup.add([finB, finEdgeB])
-    }
-    // Tier 3: full wings
-    if (t >= 3) {
-      const wingT = this.add.triangle(0, -2, 10, 2, -8, 3, -2, -16, bright)
-      const wingB = this.add.triangle(0, 2, 10, -2, -8, -3, -2, 16, dark)
-      const featherT = this.add.triangle(-4, -8, 4, -2, 6, 1, -6, -18, bronze, 0.85)
-      const featherB = this.add.triangle(-4, 8, 4, 2, 6, -1, -6, 18, bronze, 0.85)
-      e.wingTGroup.add([wingT, featherT])
-      e.wingBGroup.add([wingB, featherB])
-    }
-    // Tier 5+: rear stabilizers on wings
-    if (t >= 5) {
-      const stabT = this.add.triangle(-10, -4, 2, -3, 2, 2, -12, 0, bright, 0.9)
-      const stabB = this.add.triangle(-10, 4, 2, 3, 2, -2, -12, 0, dark, 0.9)
-      e.wingTGroup.add(stabT)
-      e.wingBGroup.add(stabB)
-    }
-
-    // ── Hull stack ───────────────────────────────────────
-    const hullShadow = this.add.triangle(1, 1.5, 18, 1, -13, -11, -13, 12, 0x6b3f1a)
-    const hull = this.add.triangle(0, 0, 18, 0, -12, -10, -12, 10, bronze)
-    const hullHighlight = this.add.triangle(
-      2,
-      -2,
-      12,
-      -1,
-      -6,
-      -6,
-      4,
-      -3,
-      bright,
-      0.5,
-    )
-    const core = this.add.triangle(2, 0, 12, 0, -6, -5.5, -6, 5.5, bright)
-    const belly = this.add.triangle(0, 3, 8, 2, -8, 6, -4, 8, dark, 0.5)
-
-    // Tier 4+: armor plating
-    let plate: Phaser.GameObjects.Rectangle | undefined
-    if (t >= 4) {
-      plate = this.add.rectangle(0, 0, 10, 12, dark, 0.75)
-      plate.setStrokeStyle(1, hardFork, 0.55)
-      const plateEdge = this.add.rectangle(1, 0, 2, 14, hardFork, 0.35)
-      e.root.add(plateEdge)
-    }
-
-    // Energy / ledger lines (more with tier)
-    const lineCount = Math.min(4, 1 + Math.floor(t / 2))
-    for (let i = 0; i < lineCount; i++) {
-      const y = -3 + i * 2.5
-      const line = this.add.rectangle(3, y, 10 + t, 1.2, i % 2 === 0 ? hardFork : quantum, 0.55)
-      e.energyLines.push(line)
-    }
-    if (t >= 3) {
-      const spine = this.add.rectangle(2, 0, 14, 1.8, quantum, 0.7)
-      e.energyLines.push(spine)
-    }
-    if (t >= 4) {
-      const node = this.add.circle(10, 0, 2.2, quantumHot, 0.95)
-      node.setStrokeStyle(1, 0xffffff, 0.35)
-      e.energyNodes.push(node)
-    }
-    if (t >= 6) {
-      const nodeA = this.add.circle(4, -5, 1.8, quantumHot, 0.9)
-      const nodeB = this.add.circle(4, 5, 1.8, quantumHot, 0.9)
-      e.energyNodes.push(nodeA, nodeB)
-    }
-
-    // ── Cockpit / visor (eye glint) ───────────────────────
-    e.cockpitGlow = this.add.circle(10, -1, 5.5 + t * 0.2, quantum, 0.22)
-    e.cockpit = this.add.circle(10, -1, 4.2, bright, 0.95)
-    e.cockpit.setStrokeStyle(1.3, hardFork, 0.55)
-    const socket = this.add.circle(11, -1, 2.8, ink, 1)
-    const iris = this.add.circle(11.4, -1, 1.7, quantum, 1)
-    e.eyeGlint = this.add.circle(10.6, -1.8, 0.9, 0xffffff, 0.95)
-    e.visor = this.add.rectangle(11, -1, 6 + t * 0.3, 2.8, quantum, 0.35)
-
-    // Nose tip
-    const nose = this.add.triangle(16, 0, 0, -3, 0, 3, 8 + Math.min(4, t), 0, hardFork)
-    if (t >= 6) {
-      // Crown / hard-fork apex
-      const crown = this.add.triangle(8, 0, 6, 0, -2, -7, -2, 7, hardFork)
-      const crownCore = this.add.circle(6, 0, 2.2, quantumHot, 0.95)
-      e.root.add([crown, crownCore])
-    }
-
-    // ── Shield ring (outermost overlay) ──────────────────
-    e.shieldRing = this.add.circle(0, 0, 28 + t, AA_COLORS.shield, 0)
-    e.shieldRing.setStrokeStyle(2, AA_COLORS.shield, 0)
-
-    // ── Assemble (back → front) ──────────────────────────
-    const layer: Phaser.GameObjects.GameObject[] = [
-      e.ring,
-      e.glow,
-      e.thrusterHalo,
-      e.thrusterPlume,
-      e.thrusterPlumeCore,
-    ]
-    if (e.thrusterSideT) layer.push(e.thrusterSideT)
-    if (e.thrusterSideB) layer.push(e.thrusterSideB)
-    layer.push(
-      e.thrusterHousing,
-      e.thrusterCore,
-      thrusterRim,
-      e.wingBGroup,
-      e.wingTGroup,
-      hullShadow,
-      belly,
-      hull,
-      hullHighlight,
-      core,
-    )
-    if (plate) layer.push(plate)
-    layer.push(...e.energyLines, ...e.energyNodes)
-    layer.push(
-      e.cockpitGlow,
-      e.cockpit,
-      socket,
-      iris,
-      e.eyeGlint,
-      e.visor,
-      nose,
-      e.shieldRing,
-    )
-    e.root.add(layer)
+    setShipTier(e, Phaser.Math.Clamp(Math.floor(tier), 1, AA.maxWeaponTier))
   }
 
   private rebuildShipParts(_c: Phaser.GameObjects.Container, tier: number) {
@@ -884,6 +677,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setDepth(56)
+      .setVisible(false)
+
+    // Overdrive danger frame (hidden below max tier)
+    this.overdriveFrame = this.add
+      .rectangle(width / 2, height / 2, width - 6, height - 6)
+      .setStrokeStyle(4, AA_COLORS.danger, 0.8)
+      .setDepth(39)
       .setVisible(false)
 
     this.newBestBanner = this.add
@@ -1003,11 +803,19 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.comboMult = 1
     this.survivalAcc = 0
     this.killsSincePickup = 0
+    this.overdriveMs = 0
+    this.overdriveHeat = 0
+    this.overdriveOn = false
+    this.maxTierHeldMs = 0
+    this.nextEliteAt = 0
+    this.overdriveFrame?.setVisible(false)
+    this.hudTier?.setColor('#d4922a')
     stopTrail(this.trail)
 
     this.bullets.clear(true, true)
     this.bugs.clear(true, true)
     this.pickups.clear(true, true)
+    this.enemyShots.clear(true, true)
 
     this.touchTarget = null
     this.touchHeld = false
@@ -1145,82 +953,22 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.animateShipVisual(delta)
   }
 
-  /**
-   * Thruster heat, wing flex on turn rate, energy pulse by tier / fire boost.
-   */
+  /** Bank frames from turn rate, thruster flicker/length from speed + boost. */
   private animateShipVisual(delta: number) {
     const e = this.shipEmblem
-    if (!e?.thrusterPlume) return
-
-    this.shipAnimT += delta
-    const t = this.shipAnimT
+    if (!e) return
     const body = this.ship.body as Phaser.Physics.Arcade.Body | null
     const spd = body?.velocity.length() ?? 0
     const speedNorm = Phaser.Math.Clamp(spd / AA.maxSpeed, 0, 1)
     const fireHot = this.time.now < this.fireBoostUntil ? 1 : 0
-    const tierHeat = (e.tier - 1) / Math.max(1, AA.maxWeaponTier - 1)
-
-    // Turn rate → wing flex
     const ang = this.shipVisual.angle
     let dAng = ang - this.lastShipAngle
     if (dAng > 180) dAng -= 360
     if (dAng < -180) dAng += 360
     this.lastShipAngle = ang
-    const flex = Phaser.Math.Clamp(dAng * 1.8, -14, 14)
-
-    if (e.wingTGroup) {
-      e.wingTGroup.angle = Phaser.Math.Linear(e.wingTGroup.angle, -flex + 2, 0.22)
-    }
-    if (e.wingBGroup) {
-      e.wingBGroup.angle = Phaser.Math.Linear(e.wingBGroup.angle, flex - 2, 0.22)
-    }
-
-    // Thruster intensity from speed + fire rate + tier
     const thrust =
-      0.45 +
-      speedNorm * 0.85 +
-      fireHot * 0.4 +
-      tierHeat * 0.25 +
-      (this.state === 'ready' ? 0.2 : 0)
-    const flicker = 0.88 + Math.sin(t / 40) * 0.08 + Math.random() * 0.06
-    e.thrusterPlume.setScale(thrust * flicker, 0.7 + thrust * 0.45)
-    e.thrusterPlume.setAlpha(0.25 + thrust * 0.4)
-    e.thrusterPlumeCore.setScale(thrust * flicker * 0.9, 0.65 + thrust * 0.4)
-    e.thrusterPlumeCore.setAlpha(0.5 + thrust * 0.4)
-    e.thrusterCore.setAlpha(0.55 + Math.sin(t / 45) * 0.35 * thrust)
-    e.thrusterHalo.setScale(0.75 + thrust * 0.45 + Math.sin(t / 70) * 0.06)
-    e.thrusterHalo.setAlpha(0.08 + thrust * 0.2)
-    if (e.thrusterSideT) {
-      e.thrusterSideT.setAlpha(0.25 + thrust * 0.35)
-      e.thrusterSideT.setScale(0.85 + thrust * 0.25, thrust * 0.9)
-    }
-    if (e.thrusterSideB) {
-      e.thrusterSideB.setAlpha(0.25 + thrust * 0.35)
-      e.thrusterSideB.setScale(0.85 + thrust * 0.25, thrust * 0.9)
-    }
-
-    // Cockpit eye
-    e.eyeGlint.setAlpha(0.5 + Math.sin(t / 90) * 0.45)
-    e.eyeGlint.x = 10.6 + Math.sin(t / 120) * 0.35
-    e.cockpitGlow.setAlpha(0.14 + tierHeat * 0.12 + Math.sin(t / 100) * 0.08)
-    e.visor.setAlpha(0.25 + Math.sin(t / 110) * 0.2 + tierHeat * 0.15)
-
-    // Energy lines pulse harder at high tier / fire boost
-    const pulse =
-      0.35 + tierHeat * 0.45 + Math.sin(t / 85) * 0.2 + fireHot * 0.25
-    for (let i = 0; i < e.energyLines.length; i++) {
-      e.energyLines[i].setAlpha(pulse * (0.7 + (i % 3) * 0.12))
-    }
-    for (const n of e.energyNodes) {
-      n.setScale(0.85 + Math.sin(t / 70 + tierHeat) * 0.2)
-      n.setAlpha(0.55 + Math.sin(t / 60) * 0.35)
-    }
-
-    e.glow.setScale(1 + Math.sin(t / 150) * 0.06 + tierHeat * 0.04)
-    e.ring.setAlpha(0.05 + tierHeat * 0.12 + fireHot * 0.08)
-    e.ring.setScale(1 + Math.sin(t / 180) * 0.04)
-
-    void delta
+      0.5 + speedNorm * 0.8 + fireHot * 0.35 + (this.state === 'ready' ? 0.15 : 0)
+    animateShipSprite(e, delta, dAng, thrust)
   }
 
   private updateShieldVisual() {
@@ -1372,7 +1120,10 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       0,
       1,
     )
-    const interval = Phaser.Math.Linear(AA.spawnMaxMs, AA.spawnMinMs, heat)
+    const od = this.overdriveHeat
+    const interval =
+      Phaser.Math.Linear(AA.spawnMaxMs, AA.spawnMinMs, heat) *
+      spawnIntervalFactor(od)
 
     this.spawnBug(this.pickBugKind(heat))
     // Double / triple packs scale with heat (brutal at full power)
@@ -1384,6 +1135,12 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     if (heat > 0.55 && Math.random() < 0.2 + tierHeat * 0.35) {
       this.time.delayedCall(280, () => {
         if (this.state === 'playing') this.spawnBug(this.pickBugKind(heat))
+      })
+    }
+    // Overdrive: extra packs on top of the normal ramp
+    if (od > 0 && Math.random() < TOP_MODE.extraPackChance * od) {
+      this.time.delayedCall(200, () => {
+        if (this.state === 'playing') this.spawnBug(this.pickBugKind(1))
       })
     }
     // At max tier, occasional race rush
@@ -1466,7 +1223,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     }
 
     const tierHeat = (this.weaponTier - 1) / Math.max(1, AA.maxWeaponTier - 1)
-    const speedBoost = 1 + this.difficulty * 0.45 + tierHeat * 0.55
+    const od = this.overdriveHeat
+    const speedBoost =
+      (1 + this.difficulty * 0.45 + tierHeat * 0.55) * speedFactor(od)
+    meta.hp += hpBonus(kind, od)
+    if (od > 0 && kind === 'corrupt') {
+      meta.nextShotAt = this.time.now + 600 + Math.random() * enemyFireInterval(od)
+    }
 
     if (kind === 'null') {
       const ang = Math.atan2(this.ship.y - y, this.ship.x - x)
@@ -1488,7 +1251,11 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       const ang = Math.atan2(this.ship.y - y, this.ship.x - x)
       const spd = (48 + this.difficulty * 40) * speedBoost
       body.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
-      meta.hp = 4 + Math.floor(this.difficulty * 3) + Math.floor(tierHeat * 3)
+      meta.hp =
+        4 +
+        Math.floor(this.difficulty * 3) +
+        Math.floor(tierHeat * 3) +
+        hpBonus('corrupt', od)
     }
 
     bug.setData('meta', meta)
@@ -1580,7 +1347,7 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     }
     this.lastKillAt = this.time.now
     this.comboMult = Math.min(
-      AA.maxComboMult,
+      comboCap(AA.maxComboMult, this.overdriveHeat),
       1 + (this.combo - 1) * AA.comboStep * (1 + this.weaponTier * 0.08),
     )
     this.hudCombo.setText(this.combo > 1 ? `COMBO x${this.combo}` : '')
@@ -1589,7 +1356,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     if (meta.kind === 'race') pts = 12
     if (meta.kind === 'loop') pts = 14
     if (meta.kind === 'corrupt') pts = 22
-    pts = Math.round(pts * this.comboMult * (1 + this.weaponTier * 0.06))
+    if (meta.elite) pts = TOP_MODE.elitePoints
+    pts = Math.round(
+      pts *
+        this.comboMult *
+        (1 + this.weaponTier * 0.06) *
+        (meta.elite ? 1 : killScoreMult(this.overdriveHeat)),
+    )
     this.addScore(pts)
     floatScoreText(
       this,
@@ -1648,9 +1421,29 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     }
   }
 
+  private onShipHitShot(shot: Phaser.Physics.Arcade.Image) {
+    if (!shot.active || this.state !== 'playing') return
+    shot.destroy()
+    this.damageShip()
+  }
+
   private onShipHitBug(bug: Phaser.Physics.Arcade.Image) {
-    if (this.state !== 'playing') return
-    if (this.time.now < this.shieldUntil) return
+    if (!this.damageShip()) return
+    // destroy the bug on contact (except corrupt soft bounce)
+    const meta = bug.getData('meta') as BugMeta | undefined
+    if (meta && meta.kind !== 'corrupt') {
+      bug.destroy()
+    } else if (meta) {
+      const ang = Math.atan2(bug.y - this.ship.y, bug.x - this.ship.x)
+      const body = bug.body as Phaser.Physics.Arcade.Body
+      body.setVelocity(Math.cos(ang) * 160, Math.sin(ang) * 160)
+    }
+  }
+
+  /** Shared hit handling (bugs + overdrive shots). Returns false if ignored. */
+  private damageShip(): boolean {
+    if (this.state !== 'playing') return false
+    if (this.time.now < this.shieldUntil) return false
 
     // brief i-frames via short shield to avoid multi-frame hits
     this.shieldUntil = this.time.now + 350
@@ -1665,22 +1458,13 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
     this.sparkEmitter.explode(14)
     floatScoreText(this, this.ship.x, this.ship.y - 28, 'TIER -1', '#f87171')
 
-    // destroy the bug on contact (except corrupt soft bounce)
-    const meta = bug.getData('meta') as BugMeta | undefined
-    if (meta && meta.kind !== 'corrupt') {
-      bug.destroy()
-    } else if (meta) {
-      const ang = Math.atan2(bug.y - this.ship.y, bug.x - this.ship.x)
-      const body = bug.body as Phaser.Physics.Arcade.Body
-      body.setVelocity(Math.cos(ang) * 160, Math.sin(ang) * 160)
-    }
-
     if (this.hitsWithoutAmendment >= 2) {
       floatScoreText(this, this.ship.x, this.ship.y - 48, 'CONSENSUS BROKEN', '#f87171', {
         fontSize: '16px',
       })
       this.handleDeath()
     }
+    return true
   }
 
   private spawnPickup(x: number, y: number, kind: PickupKind) {
@@ -1761,6 +1545,111 @@ export class AmendmentApocalypseScene extends Phaser.Scene {
       fontSize: '18px',
     })
     this.addScore(40)
+  }
+
+  // ── overdrive (max-tier difficulty) ────────────────────
+
+  private updateOverdrive(delta: number) {
+    const atMax = this.weaponTier >= AA.maxWeaponTier
+    const wasOn = this.overdriveOn
+    this.overdriveMs = stepOverdrive(this.overdriveMs, atMax, delta)
+    this.overdriveHeat = overdriveHeat(this.overdriveMs, atMax)
+    const on = atMax && this.overdriveHeat > 0
+    this.overdriveOn = on
+
+    if (on && !wasOn) {
+      floatScoreText(this, this.ship.x, this.ship.y - 44, 'OVERDRIVE!', '#f87171', {
+        fontSize: '18px',
+      })
+      this.cameras.main.flash(120, 248, 113, 113, false)
+      if (this.nextEliteAt < this.time.now) {
+        this.nextEliteAt = this.time.now + TOP_MODE.eliteEverySeconds * 1000
+      }
+    }
+    this.overdriveFrame.setVisible(on)
+    if (on) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.time.now / (220 - 100 * this.overdriveHeat))
+      this.overdriveFrame.setStrokeStyle(
+        3 + this.overdriveHeat * 3,
+        AA_COLORS.danger,
+        0.25 + 0.45 * this.overdriveHeat * pulse,
+      )
+      this.hudTier.setText(`OVERDRIVE  ${Math.round(this.overdriveHeat * 100)}%`)
+      this.hudTier.setColor('#f87171')
+    } else if (wasOn) {
+      this.hudTier.setText(`WEAPON TIER  ${this.weaponTier}/6`)
+      this.hudTier.setColor('#d4922a')
+    }
+
+    // Weapon overheat: can't sit at max tier forever
+    this.maxTierHeldMs = atMax ? this.maxTierHeldMs + delta : 0
+    if (atMax && this.maxTierHeldMs >= TOP_MODE.overheatSeconds * 1000) {
+      this.maxTierHeldMs = 0
+      this.weaponTier = AA.maxWeaponTier - 1
+      this.rebuildShipParts(this.shipVisual, this.weaponTier)
+      this.hudTier.setText(`WEAPON TIER  ${this.weaponTier}/6`)
+      this.hudTier.setColor('#d4922a')
+      this.emitTier()
+      floatScoreText(this, this.ship.x, this.ship.y - 30, 'OVERHEAT  TIER -1', '#fb923c', {
+        fontSize: '15px',
+      })
+    }
+
+    if (on && this.time.now >= this.nextEliteAt) {
+      this.nextEliteAt = this.time.now + TOP_MODE.eliteEverySeconds * 1000
+      this.spawnElite()
+    }
+  }
+
+  private spawnElite() {
+    this.spawnBug('corrupt')
+    const list = this.bugs.getChildren() as Phaser.Physics.Arcade.Image[]
+    const bug = list[list.length - 1]
+    if (!bug) return
+    const meta = bug.getData('meta') as BugMeta
+    meta.elite = true
+    meta.hp = eliteHp(this.overdriveHeat)
+    meta.nextShotAt = this.time.now + 900
+    bug.setScale(1.9 * this.mobileScale)
+    bug.setTint(0xff8a8a)
+    const body = bug.body as Phaser.Physics.Arcade.Body
+    body.velocity.scale(0.6)
+    floatScoreText(this, this.scale.width / 2, 90, 'ELITE ROGUE INBOUND', '#f87171', {
+      fontSize: '16px',
+    })
+  }
+
+  private updateEnemyFire() {
+    const od = this.overdriveHeat
+    if (od <= 0) return
+    const now = this.time.now
+    const { width, height } = this.scale
+    for (const bug of this.bugs.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      const meta = bug.getData('meta') as BugMeta | undefined
+      if (!meta || meta.scored || meta.nextShotAt === undefined) continue
+      if (now < meta.nextShotAt) continue
+      // Only fire while on screen (fair: you can see the shooter)
+      if (bug.x < 0 || bug.x > width || bug.y < 0 || bug.y > height) continue
+      const interval = enemyFireInterval(od)
+      meta.nextShotAt = now + interval * (meta.elite ? 0.7 : 1) * Phaser.Math.FloatBetween(0.85, 1.15)
+      const ang = Math.atan2(this.ship.y - bug.y, this.ship.x - bug.x)
+      const spread = meta.elite ? [-0.28, 0, 0.28] : [0]
+      for (const da of spread) this.fireEnemyShot(bug.x, bug.y, ang + da)
+    }
+    for (const s of this.enemyShots.getChildren() as Phaser.Physics.Arcade.Image[]) {
+      if (s.x < -30 || s.x > width + 30 || s.y < -30 || s.y > height + 30) s.destroy()
+    }
+  }
+
+  private fireEnemyShot(x: number, y: number, ang: number) {
+    const s = this.enemyShots.create(x, y, 'enemy-shot') as Phaser.Physics.Arcade.Image
+    s.setDepth(8)
+    s.setScale(this.mobileScale)
+    const body = s.body as Phaser.Physics.Arcade.Body
+    body.setAllowGravity(false)
+    body.setCircle(4, 2, 2)
+    const spd = TOP_MODE.enemyBulletSpeed
+    body.setVelocity(Math.cos(ang) * spd, Math.sin(ang) * spd)
   }
 
   // ── score ──────────────────────────────────────────────
