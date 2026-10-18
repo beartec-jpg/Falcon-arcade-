@@ -28,9 +28,11 @@ export function AppLayout() {
   )
   const embedded = isInIframe()
 
-  // Close the mobile drawer on navigation
+  // Close the mobile drawer on navigation, and start each page at the top so a
+  // game's canvas ("Tap to start") is in view after tapping Play from the lobby.
   useEffect(() => {
     setNavOpen(false)
+    window.scrollTo(0, 0)
   }, [location.pathname])
 
   // Lock body scroll while the drawer is open
